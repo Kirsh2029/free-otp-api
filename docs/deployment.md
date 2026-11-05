@@ -199,6 +199,20 @@ The health check calls the connector's private readiness endpoint and its restar
 
 The optional React UI is built independently; follow [ui/README.md](../ui/README.md). Its production API value is set with `VITE_API_BASE_URL`. No frontend artifact is uploaded to the root website by the deployment commands above.
 
+## Controlled fresh SMS checks
+
+A successful listing or readable inbox history establishes those individual capabilities. It does not establish that a number receives a newly sent SMS. The frontend's **Test SMS delivery** card calls `POST /api/delivery-tests` to capture a baseline and generate a unique dummy message. Number API does not send that message. A user copies it to an external sender they control; the browser performs bounded, non-overlapping `GET /api/delivery-tests/:id` checks until receipt, expiry, error, or manual stop.
+
+Backend status `received` means the unique marker and expected code text were newly observed after the baseline. Provider timestamps may be approximate. OTP extraction is a separate result: `evidence.otpMatched=true` verifies extraction for that check, while false is displayed as an extraction failure. Expired and failed checks leave delivery unverified. The UI keeps those results separate from readable historical messages and an empty result after filtering.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `DELIVERY_TEST_TTL_SECONDS` | 600 | Maximum pending check lifetime. |
+| `DELIVERY_TEST_RETENTION_SECONDS` | 86400 | Redis retention for check records. |
+| `DELIVERY_TEST_MAX_PER_MINUTE` | 20 | Global creation limit for this public testing workflow. |
+
+The workflow uses mandatory Redis storage; it does not add an outbound SMS service or modify any tunnel or website. Local fixture tests demonstrate the request, parsing, matching, and persistence flow; a fixture is not carrier-delivery evidence.
+
 ## Troubleshooting
 
 - API exits before listening: verify Redis is reachable and check `docker compose logs api redis`. There is no in-memory fallback.
