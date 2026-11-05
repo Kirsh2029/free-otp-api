@@ -218,3 +218,13 @@ test('message routes accept URL-encoded national phone formatting', async (t) =>
   assert.equal(response.statusCode, 200);
   assert.equal(calledPhone, '+14155552671');
 });
+
+test('provider listing deadlines retain HTTP 504 instead of an unrelated gateway status', async (t) => {
+  const app = await createApp(t, {
+    getPhones: async () => [],
+    getPhonesList: async () => { throw Object.assign(new Error('Provider listing exceeded its deadline'), { statusCode: 504 }); }
+  });
+  const response = await app.inject('/api/list/USA');
+  assert.equal(response.statusCode, 504);
+  assert.match(response.json().errors[0].error, /deadline/);
+});

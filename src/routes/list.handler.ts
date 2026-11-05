@@ -47,7 +47,8 @@ export const listPhonesHandler: RouteHandler<{
   }));
   const errors = records.flatMap((record) => record.error ? [record.error] : []);
   if (errors.length === selected.length) {
-    const status = records.every((record) => record.status === 503) ? 503 : 502;
+    const status = records.every((record) => record.status === 503) ? 503
+      : records.every((record) => record.status === 504) ? 504 : 502;
     return reply.code(status).send({ error: 'All selected providers failed to return phone numbers', errors });
   }
   const phones = records.flatMap((record) => record.phones || []);
