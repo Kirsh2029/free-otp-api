@@ -36,6 +36,14 @@ jobs:
       - run: npm --prefix ui test
       - run: npm --prefix ui run build
       - run: docker compose config --quiet
+      - name: Validate optional tunnel configuration without credentials
+        run: |
+          install -d -m 700 "$RUNNER_TEMP/number-api-tunnel"
+          printf '{}\n' > "$RUNNER_TEMP/number-api-tunnel/credentials.json"
+          cp deploy/cloudflared.yml.example "$RUNNER_TEMP/number-api-tunnel/config.yml"
+          NUMBER_API_TUNNEL_CREDENTIALS_FILE="$RUNNER_TEMP/number-api-tunnel/credentials.json" \
+          NUMBER_API_TUNNEL_CONFIG_FILE="$RUNNER_TEMP/number-api-tunnel/config.yml" \
+          docker compose -f docker-compose.yml -f docker-compose.tunnel.yml config --quiet
       - run: docker compose build
       - run: docker compose up -d --wait --wait-timeout 90
       - run: curl --fail http://127.0.0.1:3030/health && curl --fail http://127.0.0.1:3030/docs/json > /dev/null

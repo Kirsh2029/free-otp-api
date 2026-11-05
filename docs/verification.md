@@ -53,10 +53,22 @@ The final image was built and started with Compose, with all **41 compiled JavaS
 - API SIGTERM exited with code 0. Stop/start and complete Compose restart both returned healthy services.
 - Health, Swagger HTML/OpenAPI, countries (104 records) and provider registration (seven IDs) returned HTTP 200.
 - Inspection confirmed that Redis has no published host port and the API is published only on host loopback port 3030.
-- The earlier image also passed a real public AnonymSMS UK listing and inbox request inside Docker (8 numbers and 10 messages). The code that parses those provider pages is identical in the final image; the final change preserves listing timeout status.
+- The final image also passed live listings for AnonymSMS UK (8), ReceiveSMS USA (94) and ReceiveASMSOnline UK (171), with successful real inbox retrieval and supported pagination. Each requested inbox page returned five messages under the requested limit, with OTP extraction verified without logging values.
 
-## Production boundary
+## Public HTTPS deployment
 
-A read-only request to `https://number-api.inboxcloudkit.xyz/health` returned **Cloudflare HTTP 525** during the handoff. DNS already resolves through Cloudflare; that does not establish a working application deployment. Cloudflare documents 525 as an [edge-to-origin SSL handshake failure](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-5xx-errors/error-525/). The origin server, its certificate/proxy configuration and the subdomain's DNS target need to be configured or verified using the owner's deployment access. No production origin or DNS credentials were supplied in this workspace.
+A request initially returned Cloudflare HTTP 525. Existing authenticated Cloudflare CLI access was subsequently verified and used to create a **separate** locally managed tunnel named **number-api-inboxcloudkit** (`1e8d9753-707d-4b3e-a3cc-ac57770ab0d3`). Only a new CNAME for **number-api.inboxcloudkit.xyz** was added; no overwrite flag was required. The existing root website, root DNS records and unrelated tunnel were not modified.
 
-The project is configured for this subdomain. Local successful checks do not claim that DNS, origin HTTPS or production deployment has been completed. Use [deployment.md](deployment.md) for the isolated virtual-host setup and exact verification URLs.
+The connector runs as a third Docker service using the pinned official Cloudflare image, a read-only filesystem, no capabilities, and read-only private credential/config mounts outside Git. Its ingress allows only the Number API hostname, forwarding to `http://api:3030`; the catchall returns 404. Redis remains private. Both the new connector and the existing unrelated tunnel had four active connections after deployment.
+
+Actual HTTPS requests to **https://number-api.inboxcloudkit.xyz** passed:
+
+- `/health`, `/health/live`, `/docs/`, `/docs/json`: HTTP 200, Redis up, correct Number API title and OpenAPI server.
+- `/api/countries`: HTTP 200, 104 records; `/api/providers`: HTTP 200, seven providers.
+- Complete listings: AnonymSMS UK 8, ReceiveSMS USA 94, ReceiveASMSOnline UK 171.
+- Real inbox pages: AnonymSMS and ReceiveSMS pages 1/2, ReceiveASMSOnline page 1; HTTP 200, five messages per requested page limit, OTPs parsed.
+- CORS preflight: HTTP 204, exact allowed origin and no credential header.
+
+The GitHub Actions run for application/documentation commit `a2a4277955474b59f41784df3f79afb5a66fbaa7` also passed dependency installation, lint, backend/frontend builds and tests, Docker build, healthy Compose startup and HTTP checks: [CI run](https://github.com/Kirsh2029/free-otp-api/actions/runs/42076097570).
+
+This public deployment is hosted on the user's Mac through the dedicated Colima Docker profile. The Mac, its network connection and Colima must remain running. No always-on remote server was provisioned. For continuous service, migrate the same Compose stack and dedicated tunnel credentials to an always-on host using [deployment.md](deployment.md).

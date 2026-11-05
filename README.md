@@ -6,7 +6,7 @@ Redis-backed API for discovering shared public SMS numbers and reading their pub
 - Swagger: **https://number-api.inboxcloudkit.xyz/docs**
 - Readiness: **https://number-api.inboxcloudkit.xyz/health**
 
-These are the intended production URLs. DNS, HTTPS and a production server must be configured separately; cloning this project does not deploy them. The existing **inboxcloudkit.xyz** website is a separate project. Deploy only the API subdomain.
+These URLs were deployed and verified on 2026-11-05 through a dedicated Cloudflare Tunnel to this Mac's Docker stack. The host and Colima must remain running; use an always-on Docker host for continuous availability. Cloning the project does not automatically provision Cloudflare or start a public deployment. The existing **inboxcloudkit.xyz** website remains a separate project; only the API subdomain was routed here.
 
 ## Architecture
 
@@ -148,6 +148,10 @@ All backend application settings are parsed in src/config.ts. Copy .env.example;
 | PROVIDER_RETRIES | 2 | Additional attempts for transient failures; restricted/unavailable pages are not retried |
 | PROXY | http://proxy.example.com:8080 | Optional ordinary egress proxy without credentials/query/fragment |
 | API_PORT | 3030 | Compose host port only; internal API port remains 3030 |
+| NUMBER_API_TUNNEL_CREDENTIALS_FILE | /absolute/private/number-api/credentials.json | Optional tunnel overlay: private, dedicated tunnel credential file |
+| NUMBER_API_TUNNEL_CONFIG_FILE | /absolute/private/number-api/config.yml | Optional tunnel overlay: single-host ingress config |
+| NUMBER_API_TUNNEL_UID | 65532 | Optional tunnel process UID; set to the private files' owner, e.g. with id -u |
+| NUMBER_API_TUNNEL_GID | 65532 | Optional tunnel process GID; set to the private files' group, e.g. with id -g |
 
 Default CORS origins are https://inboxcloudkit.xyz, https://www.inboxcloudkit.xyz, and HTTP localhost/127.0.0.1 on ports 3000 and 5173. Additional origins are additive. Preflight OPTIONS works, credentials are omitted, and wildcard origins are rejected. CORS governs browser access; it is not API authentication.
 
@@ -203,11 +207,13 @@ curl --fail http://127.0.0.1:3030/health
 
 Without TEST_REDIS_URL, the live cache/expiry and network-proxy Redis checks are explicitly skipped; all deterministic tests still run. Tests cover configuration, CORS, Swagger, route validation/contracts, phone parsing, OTP extraction, provider registration, pagination, network deadlines and browser lifecycle. Live public-provider checks are separate because upstream inventory and access restrictions change. Use a current returned number rather than inventing a test inbox.
 
-The dated [verification record](docs/verification.md) distinguishes automated checks, actual public-provider integration, Docker lifecycle checks and the remaining production deployment work.
+The dated [verification record](docs/verification.md) distinguishes automated checks, actual public-provider integration, Docker lifecycle checks and the public HTTPS deployment.
 
 ## Domain, HTTPS and deployment
 
-Create a DNS A record for **number-api.inboxcloudkit.xyz** pointing at the deployment server. Add AAAA only when the server accepts IPv6. Keep existing root/www records and website configuration unchanged. Open public ports 80/443; proxy only this hostname to the loopback API on port 3030, preserving /api and /docs paths. Obtain a certificate for this subdomain and forward Host and X-Forwarded-* headers. See the exact isolated Nginx configuration and certificate commands in [docs/deployment.md](docs/deployment.md).
+For an Nginx deployment on a separate server, point the **number-api.inboxcloudkit.xyz** DNS record at that server. Add AAAA only when the server accepts IPv6. Keep existing root/www records and website configuration unchanged. Open public ports 80/443; proxy only this hostname to the loopback API on port 3030, preserving /api and /docs paths. Obtain a certificate for this subdomain and forward Host and X-Forwarded-* headers. See the exact isolated Nginx configuration and certificate commands in [docs/deployment.md](docs/deployment.md).
+
+The verified deployment uses the separate **number-api-inboxcloudkit** Cloudflare Tunnel and the optional docker-compose.tunnel.yml overlay instead of a public origin port. Its ingress accepts only number-api.inboxcloudkit.xyz and sends it to api:3030; unmatched hostnames receive 404. Cloudflare handles public HTTPS, and the connector opens an outbound encrypted connection. The root domain and its existing unrelated tunnel were left intact. Credentials stay outside the repository. The deployment guide includes exact overlay startup, log, shutdown and migration commands.
 
 Production verification:
 

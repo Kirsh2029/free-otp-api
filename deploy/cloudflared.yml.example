@@ -1,0 +1,9 @@
+# Copy to a private directory outside this checkout and replace TUNNEL_UUID.
+# Mount only this tunnel's credentials; never mount the account-wide cert.pem.
+tunnel: TUNNEL_UUID
+credentials-file: /etc/cloudflared/credentials.json
+
+ingress:
+  - hostname: number-api.inboxcloudkit.xyz
+    service: http://api:3030
+  - service: http_status:404

@@ -1,0 +1,50 @@
+# Optional dedicated Number API connector; combine with docker-compose.yml.
+# Credentials/config stay outside Git and are mounted read-only as individual files.
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
+    restart: unless-stopped
+    init: true
+    user: "${NUMBER_API_TUNNEL_UID:-65532}:${NUMBER_API_TUNNEL_GID:-65532}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - tunnel
+      - --config
+      - /etc/cloudflared/config.yml
+      - --no-autoupdate
+      - --metrics
+      - 127.0.0.1:2000
+      - run
+    volumes:
+      - type: bind
+        source: ${NUMBER_API_TUNNEL_CREDENTIALS_FILE:?Set the absolute path to the dedicated tunnel credentials file}
+        target: /etc/cloudflared/credentials.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${NUMBER_API_TUNNEL_CONFIG_FILE:?Set the absolute path to the dedicated tunnel config file}
+        target: /etc/cloudflared/config.yml
+        read_only: true
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "--metrics", "127.0.0.1:2000", "ready"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 4
+    stop_grace_period: 30s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
