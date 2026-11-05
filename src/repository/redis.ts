@@ -118,7 +118,7 @@ export const createRedisRepository = (
       throw new Error('Invalid cached phone data; the cache entry was removed');
     }
   };
-  return { client, connect, close, healthy, savePhones, getPhones };
+  return { client, connect, close, healthy, savePhones, getPhones, command };
 };
 
 const repository = createRedisRepository();
@@ -128,3 +128,4 @@ export const closeRedis = repository.close;
 export const isRedisHealthy = repository.healthy;
 export const savePhones = repository.savePhones;
 export const getPhones = repository.getPhones;
+export const runRedisCommand = repository.command;

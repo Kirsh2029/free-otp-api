@@ -1,7 +1,7 @@
 import type { RouteHandler } from 'fastify';
 import type { ListParams, ListQuery, ReplyList, ReplyListError } from './list.schema.js';
 import type { Source } from '../providers/index.js';
-import { errorMessage, errorStatus } from './services.js';
+import { errorMessage, errorStatus, isProviderAvailable } from './services.js';
 
 export const listPhonesHandler: RouteHandler<{
   Params: ListParams;
@@ -12,7 +12,7 @@ export const listPhonesHandler: RouteHandler<{
   const { country } = req.params;
   const { source, page = 1, limit = 1000 } = req.query;
   const selected = services.providers.filter((provider) =>
-    provider.countries.includes(country) && (!source || provider.name === source)
+    isProviderAvailable(provider) && provider.countries.includes(country) && (!source || provider.name === source)
   );
   if (!selected.length) {
     return reply.code(503).send({ error: source ? `Provider ${source} is unavailable for ${country}` : `No available providers for ${country}` });

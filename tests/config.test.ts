@@ -49,3 +49,15 @@ test('numeric and browser flags reject typos instead of silently using defaults'
   assert.equal(loadConfig({ PUPPETEER_NO_SANDBOX: 'true', REDIS_RECONNECT_ATTEMPTS: '0' }).browser.noSandbox, true);
   assert.equal(loadConfig({ REDIS_RECONNECT_ATTEMPTS: '0' }).redis.reconnectAttempts, 0);
 });
+
+test('delivery probe expiry, retention, and rate settings are validated centrally', () => {
+  const defaults = loadConfig({});
+  assert.equal(defaults.deliveryTestTtlSeconds, 600);
+  assert.equal(defaults.deliveryTestRetentionSeconds, 86400);
+  assert.equal(defaults.deliveryTestMaxPerMinute, 20);
+  const custom = loadConfig({ DELIVERY_TEST_TTL_SECONDS: '300', DELIVERY_TEST_RETENTION_SECONDS: '7200', DELIVERY_TEST_MAX_PER_MINUTE: '5' });
+  assert.equal(custom.deliveryTestTtlSeconds, 300);
+  assert.equal(custom.deliveryTestRetentionSeconds, 7200);
+  assert.equal(custom.deliveryTestMaxPerMinute, 5);
+  for (const env of [{ DELIVERY_TEST_TTL_SECONDS: '59' }, { DELIVERY_TEST_TTL_SECONDS: '1801' }, { DELIVERY_TEST_RETENTION_SECONDS: '3599' }, { DELIVERY_TEST_MAX_PER_MINUTE: '0' }, { DELIVERY_TEST_MAX_PER_MINUTE: '101' }]) assert.throws(() => loadConfig(env));
+});

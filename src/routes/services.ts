@@ -2,7 +2,7 @@ import { browser } from '../browser/cluster.js';
 import { getPhones, savePhones } from '../repository/redis.js';
 import { normalizePhoneNumber } from '../providers/helpers.js';
 import { getPhonesListTask } from '../providers/getPhonesListTask.js';
-import { providers, Sources, type Country, type Message, type OtpRouteHandlerOptions, type PhoneNumber, type Provider } from '../providers/index.js';
+import { providers, Sources, type Country, type Message, type MessageReadDiagnostics, type OtpRouteHandlerOptions, type PhoneNumber, type Provider } from '../providers/index.js';
 
 export interface ApiServices {
   providers: Provider[];
@@ -27,6 +27,25 @@ export const defaultServices: ApiServices = {
   })
 };
 
+export const normalizeInboxRead = (found: Message | Message[] | undefined): Message[] =>
+  Array.isArray(found) ? found : found ? [found] : [];
+
+export const readProviderInbox = async (
+  services: Pick<ApiServices, 'getMessages'>,
+  provider: Provider,
+  options: OtpRouteHandlerOptions
+): Promise<{ messages: Message[]; diagnostics?: MessageReadDiagnostics }> => {
+  let diagnostics: MessageReadDiagnostics | undefined;
+  const found = await services.getMessages(provider, {
+    ...options,
+    onRead: (snapshot) => {
+      diagnostics = { ...snapshot };
+      options.onRead?.(snapshot);
+    }
+  });
+  return { messages: normalizeInboxRead(found), ...(diagnostics ? { diagnostics } : {}) };
+};
+
 declare module 'fastify' {
   interface FastifyInstance {
     numberApiServices: ApiServices;
@@ -36,10 +55,13 @@ declare module 'fastify' {
 export const errorStatus = (error: unknown, fallback = 502): number => {
   if (error && typeof error === 'object' && 'statusCode' in error && typeof error.statusCode === 'number') {
     const status = error.statusCode;
-    if (status >= 400 && status <= 599) return status;
+    if (Number.isInteger(status) && status >= 400 && status <= 599) return status;
   }
+  if (error instanceof Error && (error.name === 'TimeoutError' || ('code' in error && error.code === 'ETIMEDOUT'))) return 504;
   return fallback;
 };
+
+export const isProviderAvailable = (provider: Provider): boolean => provider.enabled && provider.status !== 'disabled';
 
 export const errorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error && error.message ? error.message : fallback;

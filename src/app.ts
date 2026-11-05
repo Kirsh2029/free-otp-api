@@ -30,7 +30,7 @@ export const buildApp = async (options: BuildAppOptions = {}) => {
   await app.register(cors, { config: settings });
   await app.register(swagger, { config: settings });
   await app.register(health, { healthCheck: options.healthCheck });
-  await app.register(routes, { prefix: settings.apiPath, services: options.services });
+  await app.register(routes, { prefix: settings.apiPath, services: options.services, delivery: { ...options.delivery, settings } });
   app.get('/', { schema: { hide: true } }, async () => ({ name: 'Number API', api: settings.apiBaseUrl, docs: '/docs', health: '/health' }));
   return app;
 };

@@ -34,6 +34,9 @@ export interface AppConfig {
   };
   maxProviderPages: number;
   providerRetries: number;
+  deliveryTestTtlSeconds: number;
+  deliveryTestRetentionSeconds: number;
+  deliveryTestMaxPerMinute: number;
 }
 
 const integer = (env: Environment, key: string, fallback: number, min: number, max: number): number => {
@@ -141,7 +144,10 @@ export const loadConfig = (env: Environment = process.env): AppConfig => {
       proxy
     },
     maxProviderPages: integer(env, 'MAX_PROVIDER_PAGES', 50, 1, 100),
-    providerRetries: integer(env, 'PROVIDER_RETRIES', 2, 1, 5)
+    providerRetries: integer(env, 'PROVIDER_RETRIES', 2, 1, 5),
+    deliveryTestTtlSeconds: integer(env, 'DELIVERY_TEST_TTL_SECONDS', 600, 60, 1800),
+    deliveryTestRetentionSeconds: integer(env, 'DELIVERY_TEST_RETENTION_SECONDS', 86400, 3600, 604800),
+    deliveryTestMaxPerMinute: integer(env, 'DELIVERY_TEST_MAX_PER_MINUTE', 20, 1, 100)
   };
 };
 

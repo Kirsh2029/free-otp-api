@@ -28,7 +28,7 @@ const querystringSchema = {
     },
     since: { type: 'number', minimum: 0, description: 'Unix timestamp in milliseconds; overrides ago' },
     match: { type: 'string', maxLength: 1024, description: 'Case-sensitive substring to match in the SMS' },
-    source: { type: 'string', enum: Object.values(Source), description: 'Provider that owns the number; inferred from cache when omitted, then prefers a verified source' },
+    source: { type: 'string', enum: Object.values(Source), description: 'Provider that owns the number; inferred from cache when omitted, then prefers verified inbox-read compatibility. Historical reads do not verify fresh SMS delivery.' },
     page: { type: 'integer', minimum: 1, maximum: 100, default: 1, description: 'Public provider inbox page, where supported' },
     limit: { type: 'integer', minimum: 1, maximum: 1000, default: 1000 },
     timeout: { type: 'integer', minimum: 0, maximum: 20000, default: 0, description: 'Optional bounded polling duration in milliseconds; default checks once' }
@@ -60,7 +60,40 @@ const requestedSchema = {
     ago: { type: 'number' },
     agoText: { type: 'string' },
     match: { type: 'string' },
+    timeFilter: { type: 'string', enum: ['ago', 'since'], description: 'The effective time filter; since overrides ago' },
     source: { type: 'string' }
+  },
+  additionalProperties: false
+} as const;
+
+const diagnosticsSchema = {
+  type: 'object',
+  description: 'Observed provider inbox read and filter counts. Present only after a real read. A historical inbox read does not verify delivery of a newly sent SMS.',
+  required: [
+    'providerUrl', 'readAt', 'readDurationMs', 'rawRowCount', 'parseDrops',
+    'droppedTimestampCount', 'droppedMessageCount', 'observedMessageCount',
+    'matchedMessageCount', 'returnedMessageCount', 'timeFilteredCount',
+    'matcherFilteredCount', 'page', 'pollCount', 'emptyInbox', 'deliveryStatus'
+  ],
+  properties: {
+    providerUrl: { type: 'string' },
+    readAt: { type: 'string', format: 'date-time' },
+    readDurationMs: { type: 'number', minimum: 0 },
+    rawRowCount: { type: 'integer', minimum: 0 },
+    parseDrops: { type: 'integer', minimum: 0 },
+    droppedTimestampCount: { type: 'integer', minimum: 0 },
+    droppedMessageCount: { type: 'integer', minimum: 0 },
+    observedMessageCount: { type: 'integer', minimum: 0 },
+    matchedMessageCount: { type: 'integer', minimum: 0 },
+    returnedMessageCount: { type: 'integer', minimum: 0 },
+    timeFilteredCount: { type: 'integer', minimum: 0 },
+    matcherFilteredCount: { type: 'integer', minimum: 0 },
+    page: { type: 'integer', minimum: 1 },
+    pollCount: { type: 'integer', minimum: 1 },
+    newestMessageAt: { type: 'number', minimum: 0 },
+    oldestMessageAt: { type: 'number', minimum: 0 },
+    emptyInbox: { type: 'boolean' },
+    deliveryStatus: { type: 'string', enum: ['unverified'] }
   },
   additionalProperties: false
 } as const;
@@ -72,6 +105,7 @@ export const replySchema = {
     requested: requestedSchema,
     result: { ...resultSchema, nullable: true },
     results: { type: 'array', items: resultSchema, description: 'All matched messages, including a single match' },
+    diagnostics: diagnosticsSchema,
     pagination: {
       type: 'object',
       properties: { page: { type: 'integer' }, limit: { type: 'integer' }, count: { type: 'integer' } },
@@ -89,7 +123,8 @@ export const replyError = {
   properties: {
     error: { type: 'string' },
     message: { type: 'string' },
-    requested: requestedSchema
+    requested: requestedSchema,
+    diagnostics: diagnosticsSchema
   },
   additionalProperties: false
 } as const;

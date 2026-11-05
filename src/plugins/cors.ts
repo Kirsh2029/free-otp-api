@@ -8,7 +8,7 @@ const corsPlugin: FastifyPluginAsync<{ config?: AppConfig }> = async (app, optio
   await app.register(cors, {
     origin: (origin, callback) => callback(null, !origin || origins.has(origin)),
     credentials: false,
-    methods: ['GET', 'HEAD', 'OPTIONS'],
+    methods: ['GET', 'HEAD', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Accept'],
     maxAge: 600,
     strictPreflight: true
