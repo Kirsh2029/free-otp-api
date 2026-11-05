@@ -18,6 +18,7 @@ const PhoneNumbers: React.FC = () => {
 
   return (
     <>
+      <Alert type="info" showIcon message="Numbers listed by providers" description="A listing does not confirm fresh SMS delivery. Open an inbox to inspect its history or check for a new message." />
       {error && <Alert type="error" showIcon message="Phone listing failed" description={error} />}
       {!!data?.errors?.length && (
         <Alert type="warning" showIcon message="Some sources failed" description={data.errors.map((failure) => `${failure.source}: ${failure.error}`).join('; ')} />

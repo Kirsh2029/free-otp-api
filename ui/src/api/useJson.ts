@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { baseUrl } from './index';
 import { loadPhonePages } from './phonePages';
+import { readApiResponse } from './response';
 import type { PhonesResponse } from '../types';
 
 /** Abort stale requests when routes change, and retain HTTP errors in the UI. */
@@ -11,9 +12,7 @@ export function useJson<T>(endpoint: string, revision = 0, collectPhonePages = f
     setState({ loading: true });
     const get = async (path: string) => {
       const response = await fetch(`${baseUrl}${path}`, { signal: controller.signal });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.message || body.error || `Request failed (${response.status})`);
-      return body;
+      return readApiResponse<unknown>(response);
     };
     const request = collectPhonePages
       ? loadPhonePages((page, limit) => get(`${endpoint}?${new URLSearchParams({ page: String(page), limit: String(limit) })}`) as Promise<PhonesResponse>)

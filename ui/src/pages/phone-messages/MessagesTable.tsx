@@ -5,16 +5,17 @@ import { Message } from '../../types';
 
 const columns: ColumnsType<Message> = [
   {
-    title: 'Time',
+    title: 'Received',
     dataIndex: 'agoText',
-    width: '20%',
+    width: '25%',
+    render: (value: string, message: Message) => <span title={new Date(message.ago).toISOString()}>{value}<br /><small>{new Date(message.ago).toLocaleString()}</small></span>,
     sorter: (a, b) => a.ago - b.ago,
-    defaultSortOrder: 'ascend'
+    defaultSortOrder: 'descend'
   },
   {
     title: 'Message',
     dataIndex: 'message',
-    width: '80%'
+    width: '75%'
   }
 ];
 

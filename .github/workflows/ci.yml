@@ -35,6 +35,18 @@ jobs:
       - run: npm --prefix ui ci
       - run: npm --prefix ui test
       - run: npm --prefix ui run build
+      - name: Run frontend browser regression with fixture API responses
+        env:
+          UI_SMOKE_NO_SANDBOX: 'true'
+        run: |
+          npm --prefix ui run preview > "$RUNNER_TEMP/number-api-ui-preview.log" 2>&1 &
+          number_api_ui_pid=$!
+          trap 'kill "$number_api_ui_pid" 2>/dev/null || true' EXIT
+          for number_api_attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4173/ > /dev/null; then break; fi
+            sleep 1
+          done
+          npm --prefix ui run smoke
       - run: docker compose config --quiet
       - name: Validate optional tunnel configuration without credentials
         run: |

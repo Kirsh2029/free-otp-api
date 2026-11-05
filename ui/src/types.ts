@@ -44,7 +44,30 @@ export interface Message {
   url: string;
 }
 
+export interface InboxDiagnostics {
+  providerUrl: string;
+  readAt: string;
+  readDurationMs: number;
+  rawRowCount: number;
+  parseDrops: number;
+  droppedTimestampCount: number;
+  droppedMessageCount: number;
+  observedMessageCount: number;
+  matchedMessageCount: number;
+  returnedMessageCount: number;
+  timeFilteredCount: number;
+  matcherFilteredCount: number;
+  page: number;
+  pollCount: number;
+  newestMessageAt?: number;
+  oldestMessageAt?: number;
+  emptyInbox: boolean;
+  deliveryStatus?: 'unverified';
+}
+
 export interface PhoneMessagesResponse {
+  diagnostics?: InboxDiagnostics;
+  requested?: { ago: number; agoText?: string; timeFilter?: string; match: string; source?: string };
   results?: Message[];
   result?: Message | null;
 }
