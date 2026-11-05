@@ -19,7 +19,7 @@ const PhoneCard: React.FC<Props> = ({ countryName, phone, loading }) => {
   const phoneFormatted = formatPhoneNumberForDisplay(countryName, phone?.value);
 
   const [activeSourceTab, setActiveSourceTab] = useState(phone?.sources?.at(0)?.name);
-  const activeTabSource = phone?.sources.find((source) => source.name === activeSourceTab);
+  const activeTabSource = phone?.sources.find((source) => source.name === activeSourceTab) ?? phone?.sources[0];
 
   const sourceTabs =
     (phone?.sources?.length ?? 0) > 1
@@ -60,10 +60,8 @@ const PhoneCard: React.FC<Props> = ({ countryName, phone, loading }) => {
             onClick={() => {
               if (phone && !loading) {
                 return window.open(
-                  `/messages/${countryName}/${activeTabSource?.name ?? ''}/${phoneFormatted
-                    ?.replace('+', '')
-                    ?.trim()}?url=${activeTabSource?.url}`,
-                  '_blank'
+                  `/messages/${encodeURIComponent(countryName ?? '')}/${encodeURIComponent(activeTabSource?.name ?? '')}/${encodeURIComponent(phone.value.replace(/^\+/, ''))}?${new URLSearchParams({ url: activeTabSource?.url ?? '' })}`,
+                  '_blank', 'noopener,noreferrer'
                 );
               }
             }}

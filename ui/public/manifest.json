@@ -1,15 +1,15 @@
 {
-  "short_name": "otp.shelex.dev",
-  "name": "Free Phone Numbers",
+  "short_name": "Number API",
+  "name": "Number API",
   "icons": [
     {
-      "src": "favicon.ico",
-      "sizes": "64x64 32x32 24x24 16x16",
-      "type": "image/x-icon"
+      "src": "favicon.png",
+      "sizes": "192x192",
+      "type": "image/png"
     }
   ],
   "start_url": ".",
   "display": "standalone",
-  "theme_color": "#000000",
+  "theme_color": "#001529",
   "background_color": "#ffffff"
 }

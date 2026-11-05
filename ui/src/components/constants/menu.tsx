@@ -2,10 +2,9 @@ import { NavLink } from 'react-router-dom';
 import { Typography } from 'antd';
 import { GithubOutlined, ExperimentOutlined } from '@ant-design/icons';
 import routes from '../../routes/routes';
-import { root } from '../../api';
+import { swaggerUrl } from '../../api';
 
-const githubRepoUrl = 'https://github.com/Shelex/free-otp-api';
-const swaggerUrl = `${root}/docs`;
+const githubRepoUrl = 'https://github.com/Kirsh2029/free-otp-api';
 
 const externalRoutes = [
   {
@@ -18,7 +17,7 @@ const externalRoutes = [
         Github
       </Typography.Link>
     ),
-    icon: <GithubOutlined onPointerEnterCapture={undefined} onPointerLeaveCapture={undefined} />
+    icon: <GithubOutlined />
   },
   {
     key: 'swagger',
@@ -30,7 +29,7 @@ const externalRoutes = [
         Swagger
       </Typography.Link>
     ),
-    icon: <ExperimentOutlined onPointerEnterCapture={undefined} onPointerLeaveCapture={undefined} />
+    icon: <ExperimentOutlined />
   }
 ];
 
@@ -42,6 +41,6 @@ export const menuItems = routes
       path: route.path
     },
     label: <NavLink to={route.path}>{route.name}</NavLink>,
-    icon: <route.icon onPointerEnterCapture={undefined} onPointerLeaveCapture={undefined} />
+    icon: <route.icon />
   }))
   .concat(externalRoutes);

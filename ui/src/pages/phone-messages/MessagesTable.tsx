@@ -9,7 +9,7 @@ const columns: ColumnsType<Message> = [
     dataIndex: 'agoText',
     width: '20%',
     sorter: (a, b) => a.ago - b.ago,
-    defaultSortOrder: 'descend'
+    defaultSortOrder: 'ascend'
   },
   {
     title: 'Message',
@@ -24,7 +24,7 @@ interface Props {
 }
 
 const MessagesTable: React.FC<Props> = ({ messages, loading }) => (
-  <Table loading={loading} columns={columns} dataSource={messages} pagination={{ pageSize: 100 }} />
+  <Table rowKey={(message) => `${message.url}:${message.ago}:${message.message}`} loading={loading} columns={columns} dataSource={messages} pagination={{ pageSize: 100 }} />
 );
 
 export default MessagesTable;

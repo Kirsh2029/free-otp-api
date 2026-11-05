@@ -18,6 +18,8 @@ export interface CountryRecord {
 
 export interface PhonesResponse {
   phones: PhoneRecord[];
+  errors?: { source: string; error: string }[];
+  pagination?: { page: number; limit: number; total: number; hasMore: boolean };
 }
 
 export interface PhoneRecord {
@@ -38,10 +40,11 @@ export interface Message {
   ago: number;
   agoText: string;
   message: string;
-  otp: string;
+  otp?: string;
   url: string;
 }
 
 export interface PhoneMessagesResponse {
-  results: Message[];
+  results?: Message[];
+  result?: Message | null;
 }

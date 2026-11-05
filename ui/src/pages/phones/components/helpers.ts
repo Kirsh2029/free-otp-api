@@ -12,15 +12,9 @@ export const transformPhoneRecords = (phones: PhoneRecord[]): PhoneRecordCard[] 
   return Object.entries(sourceMap).map(([value, sources]) => ({ value, sources }));
 };
 
-export const formatPhoneNumberForDisplay = (country: string = 'Unknown', phone?: string) => {
-  if (!phone) {
-    return;
-  }
-  const isUSA = country === 'USA';
-  const addPlusMaybe = `${!phone.startsWith('+') ? '+' : ''}`;
-  if (!isUSA) {
-    return `${addPlusMaybe}${phone}`;
-  }
-  const addUsCountryCodeMaybe = `${!phone.startsWith('1') ? '1' : ''}`;
-  return `${addPlusMaybe}${addUsCountryCodeMaybe}${phone}`;
+export const formatPhoneNumberForDisplay = (country = 'Unknown', phone?: string) => {
+  if (!phone) return undefined;
+  const digits = phone.replace(/\D/g, '');
+  const needsNorthAmericanCode = (country === 'USA' || country === 'Canada') && digits.length === 10;
+  return `+${needsNorthAmericanCode ? '1' : ''}${digits}`;
 };

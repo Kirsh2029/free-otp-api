@@ -1,10 +1,11 @@
-const host = process.env.REACT_APP_API_HOST;
-const protocol = process.env.REACT_APP_API_PROTOCOL;
-export const root = `${protocol}://${host}`;
-export const baseUrl = `${root}/api`;
+import { resolveApiConfig } from './config';
+
+export const { baseUrl, root, swaggerUrl } = resolveApiConfig(import.meta.env);
+const segment = (value: string) => encodeURIComponent(value);
 
 export const endpoints = {
   countriesList: '/countries',
-  countryPhones: (country: string) => `/list/${country}`,
-  phoneMessages: (country: string, phone: string, source: string) => `/${country}/${phone}?since=1&source=${source}`
+  countryPhones: (country: string) => `/list/${segment(country)}`,
+  phoneMessages: (country: string, phone: string, source: string, page = 1) =>
+    `/${segment(country)}/${segment(phone)}?${new URLSearchParams({ since: '1', source, page: String(page) })}`
 };

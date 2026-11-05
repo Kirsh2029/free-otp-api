@@ -21,7 +21,7 @@ const pageTransition: Transition = {
     duration: 0.15
 };
 
-const OutletTransaction: React.F = ({ children }) => {
+const OutletTransaction: React.FC<React.PropsWithChildren> = ({ children }) => {
     const { pathname } = useLocation();
 
     return (

@@ -1,8 +1,7 @@
-import { Flex, Input, Pagination } from 'antd';
-import { useCallback, useState } from 'react';
-import { PhoneRecord, PhoneRecordCard } from '../../../types';
+import { Empty, Flex, Input, Pagination } from 'antd';
+import { useMemo, useState } from 'react';
+import { PhoneRecord } from '../../../types';
 import PhoneCard from './PhoneCard';
-import { uniqBy, uniqueId } from 'lodash';
 import { transformPhoneRecords } from './helpers';
 import { SearchOutlined } from '@ant-design/icons';
 
@@ -13,94 +12,28 @@ interface Props {
   loading: boolean;
   headerHeight: number;
 }
-
 const PAGE_SIZE_OPTIONS = [20, 40, 80, 120];
-const DEFAULT_PAGE_SIZE = PAGE_SIZE_OPTIONS.at(1) ?? 40;
-
-const PhonesTab: React.FC<Props> = ({ phones, country, loading, headerHeight, tabName }) => {
-  const [showPhones, setShowPhones] = useState<PhoneRecord[]>([]);
-  const [paginationInfo, setPaginationInfo] = useState({ current: 1, pageSize: DEFAULT_PAGE_SIZE });
-  const [queryPhones, setQueryPhones] = useState<PhoneRecord[]>([]);
-  const [queryFailed, setQueryFailed] = useState(false);
-
-  const onSetPage = useCallback(
-    (page: number, pageSize: number) => {
-      setPaginationInfo((prev) => ({
-        ...prev,
-        current: page,
-        pageSize: pageSize
-      }));
-      const startIndex = (page - 1) * pageSize;
-      setShowPhones(phones.slice(startIndex, startIndex + pageSize));
-    },
-    [phones]
-  );
-
-  const onSearch = (query?: string) => {
-    const queried = query ? phones.filter((p) => p.value.replace('+', '').includes(query.replace('+', ''))) : [];
-    setQueryFailed(!!query && !queried.length);
-    setQueryPhones(queried);
-  };
-
-  const getCardRecords = useCallback(() => {
-    if (loading) {
-      return Array.from({ length: 24 });
-    }
-
-    if (!!queryPhones.length !== queryFailed) {
-      return transformPhoneRecords(queryPhones);
-    }
-
-    const phonesPerPage = showPhones.length ? showPhones : phones.slice(0, paginationInfo.pageSize);
-    return transformPhoneRecords(phonesPerPage);
-  }, [loading, paginationInfo, phones, queryFailed, queryPhones, showPhones]);
+const PhonesTab: React.FC<Props> = ({ phones, country, loading, headerHeight }) => {
+  const [current, setCurrent] = useState(1);
+  const [pageSize, setPageSize] = useState(40);
+  const [query, setQuery] = useState('');
+  const records = useMemo(() => transformPhoneRecords(phones).filter((record) => record.value.replace(/\D/g, '').includes(query.replace(/\D/g, ''))), [phones, query]);
+  const page = Math.min(current, Math.max(1, Math.ceil(records.length / pageSize)));
+  const visible = records.slice((page - 1) * pageSize, page * pageSize);
 
   return (
     <>
-      {phones.length ? (
-        <Flex
-          justify="center"
-          gap={10}
-          style={{
-            padding: 3,
-            position: 'sticky',
-            top: headerHeight + 46,
-            backgroundColor: 'InfoBackground',
-            zIndex: 1
-          }}
-        >
-          <Input
-            status={queryFailed ? 'error' : ''}
-            style={{ width: '20%', minWidth: '130px' }}
-            placeholder="Search"
-            allowClear
-            addonBefore={<SearchOutlined onPointerEnterCapture={undefined} onPointerLeaveCapture={undefined} />}
-            onChange={(e) => onSearch(e.target.value ?? '')}
-          />
-          <Pagination
-            total={uniqBy(phones, 'value').length}
-            showTotal={(total, range) =>
-              total <= paginationInfo.pageSize
-                ? `${total} phones`
-                : `${range[0]}-${range[1]} of ${total} phones`
-            }
-            defaultPageSize={DEFAULT_PAGE_SIZE}
-            defaultCurrent={1}
-            pageSizeOptions={PAGE_SIZE_OPTIONS}
-            {...paginationInfo}
-            disabled={loading || !!queryPhones.length || queryFailed}
-            onChange={onSetPage}
-            responsive
-          />
-        </Flex>
-      ) : null}
+      {!!phones.length && <Flex justify="center" gap={10} style={{ padding: 3, position: 'sticky', top: headerHeight + 46, zIndex: 1, background: '#fff' }}>
+        <Input style={{ width: '20%', minWidth: 130 }} placeholder="Search number" allowClear prefix={<SearchOutlined />} value={query} onChange={(event) => { setQuery(event.target.value); setCurrent(1); }} />
+        <Pagination current={page} pageSize={pageSize} total={records.length} pageSizeOptions={PAGE_SIZE_OPTIONS} showTotal={(total) => `${total} phones`} onChange={(next, size) => { setCurrent(next); setPageSize(size); }} responsive />
+      </Flex>}
+      {!loading && !!phones.length && !records.length && <Empty description="No numbers match your search" />}
       <Flex justify="center" wrap="wrap" gap="large">
-        {getCardRecords()?.map((phone) => (
-          <PhoneCard key={uniqueId()} phone={phone as PhoneRecordCard} loading={loading} countryName={country} />
-        ))}
+        {loading
+          ? Array.from({ length: 12 }, (_, index) => <PhoneCard key={index} loading countryName={country} />)
+          : visible.map((phone) => <PhoneCard key={phone.value} phone={phone} countryName={country} />)}
       </Flex>
     </>
   );
 };
-
 export default PhonesTab;

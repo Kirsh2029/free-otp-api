@@ -6,7 +6,7 @@ import { menuItems } from '../constants/menu';
 
 const { Content } = Layout;
 
-export const AppLayout: React.F = () => (
+export const AppLayout: React.FC = () => (
   <Layout className="app-layout-container">
     <Layout.Header
       style={{
@@ -28,7 +28,7 @@ export const AppLayout: React.F = () => (
           <Outlet />
         </OutletTransaction>
       </Content>
-      <Layout.Footer style={{ textAlign: 'center' }}>Oleksandr Shevtsov ©2023-2024</Layout.Footer>
+      <Layout.Footer style={{ textAlign: 'center' }}>Number API — public, shared inboxes. Use only for authorized testing.</Layout.Footer>
     </Layout>
   </Layout>
 );

@@ -1,46 +1,36 @@
-# Getting Started with Create React App
+# Number API frontend
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A separate React 18 single-page application using Vite, TypeScript, and Ant Design. Building this UI does not publish or modify the existing InboxCloudKit website.
 
-## Available Scripts
+Requires Node.js 24 or newer. From the repository root:
 
-In the project directory, you can run:
+```sh
+cp ui/.env.example ui/.env
+npm --prefix ui ci
+npm --prefix ui start
+```
 
-### `npm start`
+Development runs at `http://localhost:5173`. To use your local backend, set `VITE_API_BASE_URL=http://localhost:3030/api` in `ui/.env`; restart Vite after environment edits. Production defaults to `https://number-api.inboxcloudkit.xyz/api`.
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+Frontend variables are public build-time values, independent of backend configuration. Do not put passwords or tokens in them.
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+| Variable | Meaning |
+| --- | --- |
+| `VITE_API_BASE_URL` | Preferred absolute HTTP(S) API base, including `/api`; trailing slashes are normalized. |
+| `REACT_APP_API_BASE_URL` | Legacy fallback when the preferred variable is absent. |
+| `REACT_APP_API_HOST` | Legacy host and optional port; appends `/api`. |
+| `REACT_APP_API_PROTOCOL` | Protocol for legacy host configuration, default `http`. |
 
-### `npm test`
+Invalid URLs, embedded credentials, query strings, and fragments are rejected. Values resolve in the listed priority order. API path parameters and query parameters are encoded separately. Source failures remain visible, including partial phone-list failures. Empty inboxes can be refreshed. Phone listings follow all API pages before client search/source grouping; bounded or interrupted pagination displays a warning. Supported providers expose previous/next inbox-page controls. The browser smoke command uses clearly identified HTTP fixtures, not real public SMS inboxes.
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+```sh
+npm --prefix ui test
+npm --prefix ui run build
+npm --prefix ui run preview
+# In another terminal (after installing root dependencies):
+npm --prefix ui run smoke
+```
 
-### `npm run build`
+Upload `ui/dist/` only to a separately configured frontend host if desired. Configure SPA fallback to `index.html` for `/phones/*` and `/messages/*`. Add that frontend origin to backend `CORS_ORIGINS` before using a different host. The API and Swagger continue to use their isolated API subdomain.
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
-
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
-
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
-
-### `npm run eject`
-
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
-
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
-
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
+The browser reads public shared SMS inboxes. Use only for authorized testing; never send confidential messages or use these numbers for sensitive accounts.

@@ -58,7 +58,7 @@ const CountryCard: React.FC<Props> = ({ country, loading }) => {
           />
         )
       }
-      onClick={() => !loading && country && navigate(`/phones/${country?.name}`)}
+      onClick={() => !loading && country && navigate(`/phones/${encodeURIComponent(country.name)}`)}
       extra={
         <Badge
           count={totalCount}

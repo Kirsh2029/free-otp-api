@@ -1,88 +1,49 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import useFetch, { CachePolicies } from 'use-http';
-import { baseUrl, endpoints } from '../../api';
-import { Message, PhoneMessagesResponse } from '../../types';
-import MessagesTable from './MessagesTable';
-import { Button, Flex, Typography } from 'antd';
+import { Alert, Button, Flex, Typography } from 'antd';
 import { StepForwardOutlined, StepBackwardOutlined, RedoOutlined } from '@ant-design/icons';
+import { endpoints } from '../../api';
+import { useJson } from '../../api/useJson';
+import { PhoneMessagesResponse } from '../../types';
+import MessagesTable from './MessagesTable';
+
+function publicLink(value: string | null | undefined) {
+  try {
+    const url = new URL(value ?? '');
+    return ['https:', 'http:'].includes(url.protocol) ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const paginatedSources = new Set(['anonymsms.com', 'receivesms.co', 'smstome.com', 'receive-sms-free.cc']);
 
 const PhoneMessages: React.FC = () => {
   const navigate = useNavigate();
-  const country = useParams().country ?? '';
-  const phone = useParams().phone ?? '';
-  const source = useParams().source ?? '';
-
+  const { country = '', phone = '', source = '' } = useParams();
   const location = useLocation();
-  const sourceUrl = new URLSearchParams(location.search).get('url');
-
-  const [messages, setMessages] = useState<Message[]>([]);
-
-  const { error, get, loading, response } = useFetch(baseUrl, { cachePolicy: CachePolicies.NO_CACHE });
-  const isFetching = useRef(true);
-
-  const noMessages = response.ok && !messages.length;
-
-  const getMessages = useCallback(
-    async (refresh: boolean = false) => {
-      if (noMessages) {
-        return;
-      }
-
-      if (messages.length && !refresh) {
-        return;
-      }
-
-      if (messages.length && refresh) {
-        setMessages([]);
-      }
-      isFetching.current = true;
-      const messagesResponse: PhoneMessagesResponse = await get(endpoints.phoneMessages(country, phone, source));
-      isFetching.current = false;
-      if (response.ok) {
-        setMessages(messagesResponse?.results);
-      }
-    },
-    [noMessages, messages, get, country, phone, source, response]
-  );
-
-  useEffect(() => {
-    if (!country || !phone || loading) {
-      return;
-    }
-    getMessages();
-  }, [country, phone, getMessages, loading]);
+  const [revision, setRevision] = useState(0);
+  const [page, setPage] = useState(1);
+  const { data, error, loading } = useJson<PhoneMessagesResponse>(endpoints.phoneMessages(country, phone, source, page), revision);
+  const messages = data?.results ?? (data?.result ? [data.result] : []);
+  const sourceUrl = publicLink(messages[0]?.url ?? new URLSearchParams(location.search).get('url'));
 
   return (
     <>
-      {error && <p>Error: {error?.message}</p>}
-      <Flex justify="center" align="center" wrap="wrap" gap="large">
-        <Button
-          icon={<StepBackwardOutlined onPointerEnterCapture={undefined} onPointerLeaveCapture={undefined} />}
-          onClick={() => navigate(`/phones/${country}`)}
-        >
-          To Phone Numbers
-        </Button>
-        <Typography.Text strong copyable>
-          {phone}
-        </Typography.Text>
-        {messages.length ? (
-          <Button
-            icon={<RedoOutlined onPointerEnterCapture={undefined} onPointerLeaveCapture={undefined} />}
-            onClick={async () => await getMessages(true)}
-          >
-            Refresh
-          </Button>
-        ) : null}
-        <Button
-          icon={<StepForwardOutlined onPointerEnterCapture={undefined} onPointerLeaveCapture={undefined} />}
-          href={messages?.at(0)?.url ?? sourceUrl ?? ''}
-          target="_blank"
-        >
-          To {source}
-        </Button>
+      <Alert type="info" showIcon message="This inbox is public and shared. Never use it for sensitive accounts or confidential messages." />
+      {error && <Alert type="error" showIcon message="Message retrieval failed" description={error} />}
+      <Flex justify="center" align="center" wrap="wrap" gap="large" style={{ margin: '16px 0' }}>
+        <Button icon={<StepBackwardOutlined />} onClick={() => navigate(`/phones/${encodeURIComponent(country)}`)}>To Phone Numbers</Button>
+        <Typography.Text strong copyable>{phone}</Typography.Text>
+        <Button icon={<RedoOutlined />} loading={loading} onClick={() => setRevision((value) => value + 1)}>Refresh</Button>
+        {sourceUrl && <Button icon={<StepForwardOutlined />} href={sourceUrl} target="_blank" rel="noopener noreferrer">To {source}</Button>}
       </Flex>
-      <MessagesTable loading={isFetching.current || loading} messages={messages} />
+      {paginatedSources.has(source) && <Flex justify="center" gap="middle" align="center" style={{ marginBottom: 16 }}>
+        <Button disabled={loading || page <= 1} onClick={() => setPage((value) => value - 1)}>Previous provider page</Button>
+        <Typography.Text>Inbox page {page}</Typography.Text>
+        <Button disabled={loading || !messages.length || page >= 100} onClick={() => setPage((value) => value + 1)}>Next provider page</Button>
+      </Flex>}
+      <MessagesTable loading={loading} messages={messages} />
     </>
   );
 };
