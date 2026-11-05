@@ -1,3 +1,13 @@
-ui
+.git
+.github
 node_modules
 dist
+ui
+.env
+.env.*
+!.env.example
+*.log
+coverage
+tests
+docs
+README.md

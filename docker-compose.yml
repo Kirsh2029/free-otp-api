@@ -1,0 +1,45 @@
+name: number-api
+services:
+  api:
+    build: .
+    platform: linux/amd64
+    init: true
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3030
+      REDIS_URL: redis://redis:6379
+      PUPPETEER_NO_SANDBOX: "true"
+    ports:
+      - "127.0.0.1:${API_PORT:-3030}:3030"
+    depends_on:
+      redis:
+        condition: service_healthy
+    shm_size: 512mb
+    stop_grace_period: 90s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+  redis:
+    image: redis:8.10.3-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    stop_grace_period: 30s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  redis-data:

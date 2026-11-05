@@ -1,5 +1,4 @@
-import {
-  handleReceiveSmsFreeCC,
+import {  handleReceiveSmsFreeCC,
   getReceiveSmsFreePhones,
   getCountryUrl as getReceiveSmsFreeCountryUrl
 } from './receive-sms-free.cc/handler.js';
@@ -37,7 +36,7 @@ import {
   countries as getReceiveSmssOnlineComCountries,
   Countries as GetReceiveSmssOnlineComCountries
 } from './receive-smss-online.com/countries.js';
-import { Provider, Source } from './types.js';
+import { type Provider, Source } from './types.js';
 
 export type Country =
   | keyof typeof ReceiveSmsFreeCounties
@@ -62,6 +61,9 @@ export const allowedCountries = Array.from(
 
 export const Sources: Record<Source, Provider> = {
   [Source.ReceiveSmsFree]: {
+    enabled: true,
+    status: 'unverified',
+    statusReason: 'Public HTTP listing and inbox HTML are accessible, but standard headless Chrome received HTTP 403 during the audit; no bypass attempted.',
     name: Source.ReceiveSmsFree,
     baseUrl: 'https://receive-sms-free.cc',
     getPhonesList: getReceiveSmsFreePhones,
@@ -71,8 +73,13 @@ export const Sources: Record<Source, Provider> = {
     refreshCacheExpression: '5 */8 * * *'
   },
   [Source.AnonymSms]: {
+    enabled: true,
+    status: 'verified',
+    statusReason: 'Rebranded to asms.ai; UK listing, inbox, timestamps, OTP extraction and inbox pagination passed live browser tests. Some stale US links redirect back to the country listing.',
+    verifiedAt: '2026-11-05',
     name: Source.AnonymSms,
-    baseUrl: 'https://anonymsms.com',
+    baseUrl: 'https://asms.ai',
+    allowedOrigins: ['https://asms.ai', 'https://anonymsms.com'],
     getPhonesList: getAnonymSmsPhones,
     handleOtp: handleAnonymSms,
     countries: anonymSmsCountries,
@@ -80,6 +87,9 @@ export const Sources: Record<Source, Provider> = {
     refreshCacheExpression: '15 */8 * * *'
   },
   [Source.QuackrIo]: {
+    enabled: false,
+    status: 'disabled',
+    statusReason: 'Provider terms explicitly prohibit scraping: https://quackr.io/terms',
     name: Source.QuackrIo,
     baseUrl: 'https://quackr.io',
     getPhonesList: getQuackrIoPhones,
@@ -89,6 +99,9 @@ export const Sources: Record<Source, Provider> = {
     refreshCacheExpression: '25 */8 * * *'
   },
   [Source.SmsToMeCom]: {
+    enabled: true,
+    status: 'unverified',
+    statusReason: 'Slovenia public HTTP listing, pagination and inbox HTML are accessible; standard headless Chrome received HTTP 403. Sweden listing was removed (404).',
     name: Source.SmsToMeCom,
     baseUrl: 'https://smstome.com',
     getPhonesList: getSmsToMeComPhones,
@@ -98,8 +111,13 @@ export const Sources: Record<Source, Provider> = {
     refreshCacheExpression: '30 */8 * * *'
   },
   [Source.ReceiveSmsCo]: {
+    enabled: true,
+    status: 'verified',
+    statusReason: 'USA complete listing (94 unique numbers), listing pagination, inbox, timestamps, OTP extraction and inbox pagination passed live browser tests.',
+    verifiedAt: '2026-11-05',
     name: Source.ReceiveSmsCo,
-    baseUrl: 'https://receivesms.co',
+    baseUrl: 'https://www.receivesms.co',
+    allowedOrigins: ['https://www.receivesms.co', 'https://receivesms.co'],
     getPhonesList: getReceiveSmsCoPhones,
     handleOtp: handleReceiveSmsCo,
     countries: receiveSmsCoCountries,
@@ -107,8 +125,12 @@ export const Sources: Record<Source, Provider> = {
     refreshCacheExpression: '35 */8 * * *'
   },
   [Source.ReceiveSmsOnlineCom]: {
+    enabled: true,
+    status: 'verified',
+    statusReason: 'Actual host receiveasmsonline.com: UK listing and hydrated inbox, timestamps and OTP extraction passed live browser tests. Legacy source identifier retained.',
+    verifiedAt: '2026-11-05',
     name: Source.ReceiveSmsOnlineCom,
-    baseUrl: 'https://receivesmsonline.com',
+    baseUrl: 'https://receiveasmsonline.com',
     getPhonesList: getReceiveSmsOnlineComPhones,
     handleOtp: handleReceiveSmsOnlineCom,
     countries: receiveSmsOnlineComCountries,
@@ -116,14 +138,18 @@ export const Sources: Record<Source, Provider> = {
     refreshCacheExpression: '40 */8 * * *'
   },
   [Source.ReceiveSmssOnlineCom]: {
+    enabled: true,
+    status: 'unverified',
+    statusReason: 'Current public page reports zero phone numbers; no listed inbox was available for a live test. Calls surface provider unavailability explicitly.',
     name: Source.ReceiveSmssOnlineCom,
-    baseUrl: 'https://receive-smss-online.com',
+    baseUrl: 'https://www.receive-smss-online.com',
+    allowedOrigins: ['https://www.receive-smss-online.com', 'https://receive-smss-online.com'],
     getPhonesList: getReceiveSmssOnlineComPhones,
     handleOtp: handleReceiveSmssOnlineCom,
     countries: getReceiveSmssOnlineComCountries,
-    getCountryUrl: () => '',
+    getCountryUrl: () => 'https://www.receive-smss-online.com/',
     refreshCacheExpression: '42 */8 * * *'
   }
 };
 
-export const providers = (Object.keys(Sources) as Source[]).map((source) => Sources[source]);
+export const providers = (Object.keys(Sources) as Source[]).map((source) => Sources[source]).filter((provider) => provider.enabled);

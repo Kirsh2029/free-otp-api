@@ -13,4 +13,6 @@ export enum Countries {
   //Denmark = 'denmark',
 }
 
-export const countries = Object.keys(Countries) as Country[];
+// The provider removed its Sweden listing (HTTP 404, checked 2026-11-05).
+// Keep the enum value so historical country identifiers remain type-compatible.
+export const countries = Object.keys(Countries).filter((country) => country !== 'Sweden') as Country[];

@@ -1,36 +1,27 @@
-import { type RouteHandler } from 'fastify';
-import { type ReplyCountries, type ReplyCountriesError } from './countries.schema.js';
-import { consola } from 'consola';
-import { PhoneNumber, providers } from '../providers/index.js';
-import { getPhones } from '../repository/redis.js';
-
-const getAvailableCountries = () =>
-  Promise.all(
-    providers.flatMap(
-      async (provider) =>
-        await Promise.all(
-          provider.countries.map(async (country) => {
-            const phones = (await getPhones(provider.name, country)) as PhoneNumber[];
-            return {
-              country: country,
-              source: provider.name,
-              url: provider?.getCountryUrl ? provider.getCountryUrl(country) : provider.baseUrl,
-              count: phones.length ?? 0
-            };
-          })
-        )
-    )
-  );
+import type { RouteHandler } from 'fastify';
+import type { CountriesQuery, ReplyCountries, ReplyCountriesError } from './countries.schema.js';
 
 export const listCountriesHandler: RouteHandler<{
+  Querystring: CountriesQuery;
   Reply: ReplyCountries | ReplyCountriesError;
 }> = async function (req, reply) {
+  const services = this.numberApiServices;
+  const selected = services.providers.filter((provider) => !req.query.source || provider.name === req.query.source);
+  if (!selected.length) return reply.code(503).send({ error: 'No available providers match this request' });
   try {
-    const providerRecords = await getAvailableCountries();
-    const countries = providerRecords.flat();
+    const countries = await Promise.all(selected.flatMap((provider) => provider.countries.map(async (country) => {
+      const phones = await services.getPhones(provider.name, country);
+      return {
+        country,
+        source: provider.name,
+        url: provider.getCountryUrl?.(country) || provider.baseUrl,
+        count: phones.length
+      };
+    })));
+    reply.header('X-Number-Counts', 'redis-cache');
     return reply.send(countries);
   } catch (error) {
-    consola.warn(error);
-    return reply.code(400).send({ error: (error as Error)?.message });
+    req.log.error({ err: error }, 'Country cache lookup failed');
+    return reply.code(503).send({ error: 'Country cache is temporarily unavailable' });
   }
 };

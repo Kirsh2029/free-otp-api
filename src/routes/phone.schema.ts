@@ -1,18 +1,19 @@
-import { FromSchema } from 'json-schema-to-ts';
-import { FastifySchema } from 'fastify';
+import type { FromSchema } from 'json-schema-to-ts';
+import type { FastifySchema } from 'fastify';
 import { allowedCountries, Source } from '../providers/index.js';
 
 const paramsSchema = {
   type: 'object',
   properties: {
-    country: {
-      type: 'string',
-      enum: allowedCountries,
-      default: 'USA'
-    },
-    phoneNumber: { type: 'string', minLength: 10, maxLength: 13, pattern: '^[0-9]+$', default: '19137886215' }
+    country: { type: 'string', enum: allowedCountries },
+    phoneNumber: {
+      type: 'string', minLength: 6, maxLength: 27,
+      pattern: '^[+0-9(][0-9 .()-]{5,25}$',
+      description: 'International digits, optional leading +, or a national number for the selected country'
+    }
   },
-  required: ['country', 'phoneNumber']
+  required: ['country', 'phoneNumber'],
+  additionalProperties: false
 } as const;
 
 export type Params = FromSchema<typeof paramsSchema>;
@@ -21,78 +22,60 @@ const querystringSchema = {
   type: 'object',
   properties: {
     ago: {
-      type: 'string',
-      description: 'specify relative time since last sms received',
-      nullable: true,
-      pattern: '^[0-9]+[smh]$',
-      default: '30s'
+      type: 'string', maxLength: 20,
+      description: 'Relative time window (seconds, minutes, hours, days, or weeks)',
+      pattern: '^[0-9]+[smhdw]$', default: '30s'
     },
-    since: { type: 'number', description: 'specify exact timestamp since last sms received', nullable: true },
-    match: { type: 'string', description: 'specify substring to match in sms', nullable: true },
-    source: {
-      type: 'string',
-      description: 'specify phone number provider',
-      enum: Object.values(Source),
-      default: Source.ReceiveSmsFree,
-      nullable: true
-    }
-  }
+    since: { type: 'number', minimum: 0, description: 'Unix timestamp in milliseconds; overrides ago' },
+    match: { type: 'string', maxLength: 1024, description: 'Case-sensitive substring to match in the SMS' },
+    source: { type: 'string', enum: Object.values(Source), description: 'Provider that owns the number; inferred from cache when omitted, then prefers a verified source' },
+    page: { type: 'integer', minimum: 1, maximum: 100, default: 1, description: 'Public provider inbox page, where supported' },
+    limit: { type: 'integer', minimum: 1, maximum: 1000, default: 1000 },
+    timeout: { type: 'integer', minimum: 0, maximum: 20000, default: 0, description: 'Optional bounded polling duration in milliseconds; default checks once' }
+  },
+  additionalProperties: false
 } as const;
 
 export type Querystring = FromSchema<typeof querystringSchema>;
 
 const resultSchema = {
   type: 'object',
+  required: ['ago', 'agoText', 'message', 'url'],
   properties: {
-    ago: {
-      type: 'number'
-    },
-    agoText: {
-      type: 'string'
-    },
-    message: {
-      type: 'string'
-    },
-    otp: {
-      type: 'string'
-    },
-    url: {
-      type: 'string'
-    }
-  }
+    ago: { type: 'number' },
+    agoText: { type: 'string' },
+    message: { type: 'string' },
+    otp: { type: 'string' },
+    url: { type: 'string' }
+  },
+  additionalProperties: false
+} as const;
+
+const requestedSchema = {
+  type: 'object',
+  required: ['country', 'phoneNumber', 'ago', 'match'],
+  properties: {
+    country: { type: 'string' },
+    phoneNumber: { type: 'string' },
+    ago: { type: 'number' },
+    agoText: { type: 'string' },
+    match: { type: 'string' },
+    source: { type: 'string' }
+  },
+  additionalProperties: false
 } as const;
 
 export const replySchema = {
-  $id: 'responsePhoneMessage',
   type: 'object',
+  required: ['requested', 'result', 'results'],
   properties: {
-    requested: {
+    requested: requestedSchema,
+    result: { ...resultSchema, nullable: true },
+    results: { type: 'array', items: resultSchema, description: 'All matched messages, including a single match' },
+    pagination: {
       type: 'object',
-      properties: {
-        country: {
-          type: 'string'
-        },
-        phoneNumber: {
-          type: 'string'
-        },
-        ago: {
-          type: 'number'
-        },
-        agoText: {
-          type: 'string',
-          nullable: true
-        },
-        match: {
-          type: 'string'
-        }
-      }
-    },
-    result: resultSchema,
-    results: {
-      description: 'if there are more than 1 match',
-      type: 'array',
-      items: resultSchema,
-      nullable: true
+      properties: { page: { type: 'integer' }, limit: { type: 'integer' }, count: { type: 'integer' } },
+      additionalProperties: false
     }
   },
   additionalProperties: false
@@ -101,12 +84,12 @@ export const replySchema = {
 export type Reply = FromSchema<typeof replySchema>;
 
 export const replyError = {
-  $id: 'errorPhoneMessage',
   type: 'object',
   required: ['error'],
   properties: {
     error: { type: 'string' },
-    message: { type: 'string', nullable: true }
+    message: { type: 'string' },
+    requested: requestedSchema
   },
   additionalProperties: false
 } as const;
@@ -114,12 +97,10 @@ export const replyError = {
 export type ReplyError = FromSchema<typeof replyError>;
 
 export const getOtpCodeSchema: FastifySchema = {
-  tags: ['Free Phones'],
-  summary: 'Get OTP code from phone number',
+  tags: ['Messages'],
+  summary: 'Read public SMS messages and extract OTP codes',
+  description: 'Shared public inboxes are unsuitable for sensitive accounts or confidential messages. The time filter uses Unix milliseconds. Pagination follows the selected provider.',
   querystring: querystringSchema,
   params: paramsSchema,
-  response: {
-    200: replySchema,
-    default: replyError
-  }
+  response: { 200: replySchema, default: replyError }
 };

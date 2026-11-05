@@ -1,83 +1,56 @@
-export const delay = (seconds: number) => {
-  return new Promise(function (resolve) {
-    setTimeout(resolve, seconds * 1000);
-  });
-};
+export const delay = (seconds: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, Math.max(0, seconds * 1000)));
 
-export const waitFor = async (condition: () => boolean) => {
+export const waitFor = async (condition: () => boolean, timeoutMs = 30_000): Promise<boolean> => {
+  const deadline = Date.now() + timeoutMs;
   while (!condition()) {
-    await delay(1);
+    if (Date.now() >= deadline) throw new Error('Timed out waiting for condition');
+    await delay(0.1);
   }
-  return condition();
+  return true;
 };
 
-type TimeUnit = 's' | 'm' | 'h' | 'd' | 'w';
-
-export const parseTimeAgo = (timeAgo?: string): number => {
-  if (!timeAgo) {
-    return 0;
-  }
-  const relativeTimeString = !timeAgo?.includes('ago') ? `${timeAgo} ago` : timeAgo;
-
-  const timeUnits: Record<TimeUnit, number> = {
-    s: 1000,
-    m: 1000 * 60,
-    h: 1000 * 60 * 60,
-    d: 1000 * 60 * 60 * 24,
-    w: 1000 * 60 * 60 * 24 * 7
-  };
-
-  const timeRegex = /.*?(\d+)\s?([smhdw]).*?ago/i;
-  const match = relativeTimeString.match(timeRegex);
-
-  if (!match) {
-    return 0;
-  }
-
-  const [, valueString, unitString] = match;
-
-  if (!valueString || !unitString) {
-    return 0;
-  }
-
-  const value = parseInt(valueString, 10);
-
-  const unit = unitString.toLowerCase() as TimeUnit;
-
-  const now = Date.now();
-  const diff = value * timeUnits[unit];
-  const timestamp = now - diff;
-
-  return timestamp;
+const units: Record<string, number> = {
+  s: 1000, sec: 1000, secs: 1000, second: 1000, seconds: 1000,
+  m: 60_000, min: 60_000, mins: 60_000, minute: 60_000, minutes: 60_000,
+  h: 3_600_000, hr: 3_600_000, hrs: 3_600_000, hour: 3_600_000, hours: 3_600_000,
+  d: 86_400_000, day: 86_400_000, days: 86_400_000,
+  w: 604_800_000, week: 604_800_000, weeks: 604_800_000,
+  month: 2_592_000_000, months: 2_592_000_000,
+  y: 31_536_000_000, year: 31_536_000_000, years: 31_536_000_000
 };
 
-export const stringifyTriggerOtpTimeDiff = (timestamp: number) => {
-  const now = Date.now();
-  const diff = now - timestamp;
+/** Unknown timestamps return 0; they must never appear to be fresh messages. */
+export const parseTimeAgo = (input?: string, now = Date.now()): number => {
+  if (!input?.trim()) return 0;
+  const value = input.trim().toLowerCase();
+  if (/^(just now|now|a moment ago|moments ago|a few seconds ago|less than (a|one) minute ago)$/.test(value)) return now;
+  if (value === 'yesterday') return now - units.d;
+  let duration = 0;
+  let matched = false;
+  const relative = value.replace(/\b(an?|one)\s+(second|minute|hour|day|week|month|year)\b/g, '1 $2');
+  const matches = relative.matchAll(/(\d+(?:\.\d+)?)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?|[smhdwy])\b/g);
+  let rest = relative;
+  for (const match of matches) {
+    matched = true;
+    duration += Number(match[1]) * units[match[2]];
+    rest = rest.replace(match[0], '');
+  }
+  if (matched && /^(?:\s|,|and|ago|before)*$/.test(rest)) return Math.max(0, now - duration);
+  if (/\d{4}[-/]\d{2}[-/]\d{2}|\d{1,2}\s+[a-z]{3,9}\s+\d{4}/i.test(value)) {
+    const timestamp = Date.parse(input);
+    return Number.isFinite(timestamp) && timestamp <= now ? timestamp : 0;
+  }
+  return 0;
+};
 
-  const seconds = Math.floor(diff / 1000);
-  const minutes = Math.ceil(seconds / 60);
-  const hours = Math.ceil(minutes / 60);
-  const days = Math.ceil(hours / 24);
-  const weeks = Math.ceil(days / 7);
-  const years = Math.ceil(days / 365);
-
-  const units = {
-    second: seconds % 60,
-    minute: minutes % 60,
-    hour: hours % 24,
-    day: days % 365,
-    weeks: weeks % 52,
-    year: years
-  };
-
-  const unitNames = Object.keys(units) as (keyof typeof units)[];
-
-  const message = unitNames
-    .filter((name) => units[name] > 0)
-    .map((unitName) => `${units[unitName]}${unitName.at(0)}`)
-    .reverse()
-    .join(' ');
-
-  return message;
+export const stringifyTriggerOtpTimeDiff = (timestamp: number): string => {
+  let remaining = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  const parts: string[] = [];
+  for (const [label, size] of [['y', 31_536_000], ['w', 604_800], ['d', 86_400], ['h', 3600], ['m', 60], ['s', 1]] as const) {
+    const amount = Math.floor(remaining / size);
+    remaining %= size;
+    if (amount) parts.push(String(amount) + label);
+  }
+  return parts.join(' ') || '0s';
 };

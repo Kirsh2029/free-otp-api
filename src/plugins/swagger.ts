@@ -1,41 +1,34 @@
 import fp from 'fastify-plugin';
-import { type FastifyPluginAsync } from 'fastify';
-import fastifySwagger, { type FastifyDynamicSwaggerOptions } from '@fastify/swagger';
-import fastifySwaggerUi, { type FastifySwaggerUiOptions } from '@fastify/swagger-ui';
-import packageJSON from '../../package.json' assert { type: 'json' };
+import type { FastifyPluginAsync } from 'fastify';
+import fastifySwagger from '@fastify/swagger';
+import fastifySwaggerUi from '@fastify/swagger-ui';
+import { config, type AppConfig } from '../config.js';
 
-const docsPlugin: FastifyPluginAsync = async (app) => {
-  const openApiOptions: FastifyDynamicSwaggerOptions = {
+const docsPlugin: FastifyPluginAsync<{ config?: AppConfig }> = async (app, options) => {
+  const settings = options.config || config;
+  await app.register(fastifySwagger, {
     openapi: {
       info: {
-        title: packageJSON.name,
-        description: packageJSON.description,
-        version: packageJSON.version
-      }
-    }
-  };
-
-  await app.register(fastifySwagger, openApiOptions);
-
-  const openApiUiOptions: FastifySwaggerUiOptions = {
-    routePrefix: 'docs',
-    uiConfig: {
-      docExpansion: 'full',
-      deepLinking: false
-    },
-    uiHooks: {
-      onRequest: function (request, reply, next) {
-        next();
+        title: 'Number API',
+        description: 'Public SMS inboxes for authorized testing. Shared inboxes are public and unsuitable for sensitive accounts or confidential messages.',
+        version: '2.0.0'
       },
-      preHandler: function (request, reply, next) {
-        next();
-      }
+      servers: [{ url: settings.apiBaseUrl }]
     },
-    staticCSP: true,
-    transformStaticCSP: (header) => header
-  };
-
-  await app.register(fastifySwaggerUi, openApiUiOptions);
+    transform: ({ schema, url }) => {
+      // Fastify owns the prefix; OpenAPI's server already includes it.
+      const apiRoute = url === settings.apiPath || url.startsWith(`${settings.apiPath}/`);
+      return {
+        schema: apiRoute ? schema : { ...schema, hide: true },
+        url: apiRoute ? url.slice(settings.apiPath.length) || '/' : url
+      };
+    }
+  });
+  await app.register(fastifySwaggerUi, {
+    routePrefix: '/docs',
+    uiConfig: { docExpansion: 'list', deepLinking: true },
+    staticCSP: true
+  });
 };
 
-export default fp(docsPlugin);
+export default fp(docsPlugin, { name: 'number-api-docs' });

@@ -1,5 +1,5 @@
-import { Page } from 'puppeteer';
-import { Country } from './index.js';
+import type { Page } from 'puppeteer';
+import type { Country } from './index.js';
 
 export enum Source {
   ReceiveSmsFree = 'receive-sms-free.cc',
@@ -12,7 +12,12 @@ export enum Source {
 }
 
 export interface Provider {
+  enabled: boolean;
+  status: 'verified' | 'unverified' | 'disabled';
+  statusReason: string;
+  verifiedAt?: string;
   baseUrl: string;
+  allowedOrigins?: string[];
   name: string;
   getPhonesList: (page: Page, country: Country, url?: string) => Promise<PhoneNumberListReply>;
   handleOtp: (page: Page, options: OtpRouteHandlerOptions) => Promise<Message | Message[] | undefined>;
@@ -27,6 +32,9 @@ export interface OtpRouteHandlerOptions {
   askedOtpAt?: number;
   matcher: string | string[];
   interval?: number;
+  timeoutMs?: number;
+  page?: number;
+  limit?: number;
 }
 
 export interface PhoneNumber {

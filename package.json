@@ -1,12 +1,12 @@
 {
-  "name": "free-otp-api",
-  "version": "1.0.0",
+  "name": "number-api",
+  "version": "2.0.0",
   "main": "dist/app.js",
-  "description": "api for free otp codes",
+  "description": "Redis-backed Number API for shared public SMS testing inboxes",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Shelex/free-otp-api.git"
+    "url": "https://github.com/Kirsh2029/free-otp-api.git"
   },
   "keywords": [
     "otp",
@@ -14,34 +14,42 @@
   ],
   "type": "module",
   "scripts": {
-    "build": "yarn tsc",
-    "prestart": "npm run build",
-    "start": "node dist/src/app.js"
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/app.js",
+    "dev": "tsx watch src/app.ts",
+    "test": "tsx --test tests/*.test.ts",
+    "lint": "eslint src tests",
+    "check": "npm run lint && npm run build && npm test",
+    "build:ui": "npm --prefix ui run build"
   },
   "dependencies": {
-    "@fastify/cors": "9.0.1",
-    "@fastify/swagger": "8.15.0",
-    "@fastify/swagger-ui": "4.1.1",
-    "consola": "3.2.3",
-    "croner": "7.0.8",
-    "dotenv": "16.4.5",
-    "fastify": "4.28.1",
-    "fastify-healthcheck": "^4.4.0",
+    "@fastify/cors": "11.4.1",
+    "@fastify/swagger": "9.9.3",
+    "@fastify/swagger-ui": "6.1.3",
+    "consola": "3.4.2",
+    "croner": "11.0.0",
+    "dotenv": "18.0.9",
+    "fastify": "5.12.8",
+    "fastify-plugin": "6.0.1",
     "json-schema-to-ts": "3.1.1",
-    "puppeteer": "19.11.1",
-    "puppeteer-cluster": "0.24.0",
-    "puppeteer-extra": "3.3.6",
-    "puppeteer-extra-plugin-stealth": "2.11.2",
-    "redis": "4.7.0"
+    "libphonenumber-js": "1.13.15",
+    "puppeteer": "25.16.0",
+    "puppeteer-cluster": "0.25.0",
+    "redis": "6.3.1"
   },
   "devDependencies": {
-    "@types/node": "18.19.46",
-    "@types/redis": "4.0.11",
-    "esbuild": "0.23.1",
-    "eslint": "8.57.0",
-    "eslint-config-prettier": "8.10.0",
-    "eslint-plugin-prettier": "4.2.1",
-    "prettier": "2.8.8",
-    "typescript": "5.3.3"
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.19.2",
+    "eslint": "10.14.0",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "packageManager": "npm@11.19.0",
+  "overrides": {
+    "minimatch": "11.0.4"
   }
 }

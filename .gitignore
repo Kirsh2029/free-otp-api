@@ -1,10 +1,10 @@
-# OS stuff
-/.idea
+.idea/
 .DS_Store
-
-# Node stuff
-node_modules
-dist
-
-# So wow such security
-ssh
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+ssh/
+*.log

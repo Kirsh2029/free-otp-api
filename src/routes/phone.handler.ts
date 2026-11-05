@@ -1,56 +1,79 @@
-import { type RouteHandler } from 'fastify';
-import { type Params, type Querystring, type Reply, type ReplyError } from './phone.schema.js';
+import type { RouteHandler } from 'fastify';
+import type { Params, Querystring, Reply, ReplyError } from './phone.schema.js';
 import { parseTimeAgo } from '../time/utils.js';
-import { browser } from '../browser/cluster.js';
-import { consola } from 'consola';
-import { Source, Sources } from '../providers/index.js';
+import { errorMessage, errorStatus } from './services.js';
 
 export const getOtpCodeHandler: RouteHandler<{
   Querystring: Querystring;
   Params: Params;
   Reply: Reply | ReplyError;
 }> = async function (req, reply) {
+  const services = this.numberApiServices;
   const { params, query } = req;
-  const provider = Sources[query?.source ?? Source.ReceiveSmsFree];
+  const eligible = services.providers.filter((candidate) =>
+    candidate.countries.includes(params.country) && (!query.source || candidate.name === query.source)
+  ).sort((a, b) => Number(b.status === 'verified') - Number(a.status === 'verified'));
+  let provider = eligible[0];
+  if (!provider) {
+    return reply.code(503).send({ error: query.source ? `Provider ${query.source} is unavailable for ${params.country}` : `No available providers for ${params.country}` });
+  }
 
+  let phoneNumber: string;
+  try {
+    phoneNumber = services.normalizePhone(params.phoneNumber, params.country);
+  } catch {
+    return reply.code(400).send({ error: 'Invalid phone number for the selected country' });
+  }
+  if (!query.source) {
+    try {
+      // Reuse the provider that owns a number previously returned by /list.
+      // Some services use inbox IDs unrelated to the telephone number.
+      const ownership = await Promise.all(eligible.map(async (candidate) => {
+        const cached = await services.getPhones(candidate.name, params.country);
+        return cached.some((entry) => {
+          try { return services.normalizePhone(entry.phone, params.country) === phoneNumber; }
+          catch { return false; }
+        });
+      }));
+      provider = eligible[ownership.findIndex(Boolean)] || provider;
+    } catch {
+      return reply.code(503).send({ error: 'Provider selection cache is temporarily unavailable' });
+    }
+  }
+  const askedAt = query.since ?? parseTimeAgo(query.ago || '30s');
+  if (!Number.isFinite(askedAt) || askedAt < 0) return reply.code(400).send({ error: 'Invalid message time filter' });
   const requested = {
     country: params.country,
-    phoneNumber: params.phoneNumber,
-    ago: query?.since || parseTimeAgo(query.ago || '30s'),
-    agoText: query?.ago,
-    match: decodeURIComponent(query?.match || '')
+    phoneNumber,
+    ago: askedAt,
+    agoText: query.ago,
+    // Fastify decodes query parameters once; decoding again corrupts literal percent signs.
+    match: query.match || '',
+    source: provider.name
   };
-
-  consola.info(`requested: ${JSON.stringify(requested, null, 2)}`);
-
+  const page = query.page ?? 1;
+  const limit = query.limit ?? 1000;
   try {
-    await browser.createCluster();
-    const result = await browser.cluster?.execute(requested, async ({ page, data }) => {
-      browser.registerPageHandlers(page);
-      req.raw.on('close', async () => {
-        if (req.raw.destroyed && !page?.isClosed()) {
-          await page?.close();
-        }
-      });
-      req.raw.on('aborted', async () => {
-        consola.info(`request aborted`);
-        // just close the page when request canceled
-        !page?.isClosed() && (await page.close());
-      });
-      return await provider.handleOtp(page, {
-        country: data.country,
-        phoneNumber: `+${data.phoneNumber}`,
-        matcher: data.match,
-        askedOtpAt: data.ago
-      });
+    const found = await services.getMessages(provider, {
+      country: params.country,
+      phoneNumber: `+${phoneNumber}`,
+      askedOtpAt: askedAt,
+      matcher: requested.match,
+      page,
+      limit,
+      timeoutMs: query.timeout ?? 0
     });
-    reply.send({
+    const messages = (Array.isArray(found) ? found : found ? [found] : [])
+      .filter((message) => Number.isFinite(message.ago) && message.ago >= askedAt && message.message.includes(requested.match))
+      .slice(0, limit);
+    return reply.send({
       requested,
-      result: Array.isArray(result) ? result.at(0) : result,
-      results: result.length > 1 ? result : []
+      result: messages[0] || null,
+      results: messages,
+      pagination: { page, limit, count: messages.length }
     });
   } catch (error) {
-    consola.warn(error);
-    reply.code(400).send({ requested, error: (error as Error)?.message });
+    req.log.warn({ err: error, provider: provider.name, country: params.country }, 'Public inbox lookup failed');
+    return reply.code(errorStatus(error)).send({ requested, error: errorMessage(error, 'Provider inbox is temporarily unavailable') });
   }
 };

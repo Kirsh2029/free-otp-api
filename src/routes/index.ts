@@ -1,45 +1,33 @@
-import { type FastifyInstance } from 'fastify';
-import fp from 'fastify-plugin';
-import { getOtpCodeSchema, replyError, replySchema } from './phone.schema.js';
-import { listPhonesSchema, replyListError, replyListSchema } from './list.schema.js';
-import { listCountriesSchema, replyCountriesError, replyCountriesSchema } from './countries.schema.js';
+import type { FastifyPluginAsync } from 'fastify';
+import { getOtpCodeSchema } from './phone.schema.js';
+import { listPhonesSchema } from './list.schema.js';
+import { listCountriesSchema } from './countries.schema.js';
 import { getOtpCodeHandler } from './phone.handler.js';
 import { listPhonesHandler } from './list.handler.js';
 import { listCountriesHandler } from './countries.handler.js';
+import { defaultServices, type ApiServices } from './services.js';
 
-export const routes = async (app: FastifyInstance) => {
-  app.addSchema(replySchema);
-  app.addSchema(replyError);
-  app.addSchema(replyListSchema);
-  app.addSchema(replyListError);
-  app.addSchema(replyCountriesSchema);
-  app.addSchema(replyCountriesError);
+export interface RouteOptions {
+  services?: Partial<ApiServices>;
+}
 
-  app.route({
-    method: 'GET',
-    url: '/list/:country',
-    schema: listPhonesSchema,
-    handler: listPhonesHandler
-  });
-  app.route({
-    method: 'GET',
-    url: '/:country/:phoneNumber',
-    schema: getOtpCodeSchema,
-    handler: getOtpCodeHandler
-  });
-  app.route({
-    method: 'GET',
-    url: '/countries',
-    schema: listCountriesSchema,
-    handler: listCountriesHandler
-  });
+export const routes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
+  const services: ApiServices = { ...defaultServices, ...options.services };
+  app.decorate('numberApiServices', services);
+  app.route({ method: 'GET', url: '/list/:country', schema: listPhonesSchema, handler: listPhonesHandler });
+  app.route({ method: 'GET', url: '/:country/:phoneNumber', schema: getOtpCodeSchema, handler: getOtpCodeHandler });
+  app.route({ method: 'GET', url: '/countries', schema: listCountriesSchema, handler: listCountriesHandler });
+  app.get('/providers', {
+    schema: { tags: ['Providers'], summary: 'Show enabled, disabled, and unverified source status' }
+  }, async () => services.allProviders.map((provider) => ({
+    source: provider.name,
+    baseUrl: provider.baseUrl,
+    enabled: provider.enabled,
+    status: provider.status,
+    reason: provider.statusReason,
+    verifiedAt: provider.verifiedAt,
+    countries: provider.countries
+  })));
 };
 
-export const withPrefix = fp(
-  async function (app) {
-    app.register(routes, { prefix: '/api' });
-  },
-  { name: 'api-prefix-route' }
-);
-
-export default withPrefix;
+export default routes;

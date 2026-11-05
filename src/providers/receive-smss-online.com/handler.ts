@@ -1,169 +1,40 @@
-import { Page } from 'puppeteer';
-import { consola } from 'consola';
-import { tryParseOtpCode } from '../helpers.js';
-import { delay, parseTimeAgo, stringifyTriggerOtpTimeDiff } from '../../time/utils.js';
-import { Countries } from './countries.js';
+import type { Page } from 'puppeteer';
+import { Countries, countries } from './countries.js';
 import { Source, type OtpRouteHandlerOptions, type PhoneNumberListReply } from '../types.js';
-import { defaultRecheckDelay } from '../constants.js';
-import { Country } from '../providers.js';
-import { getPhones } from '../../repository/redis.js';
+import type { Country } from '../providers.js';
+import { config } from '../../config.js';
+import { convertMessages, findPhoneUrl, navigate, nextPage, normalizePhones, pollMessages, ProviderError, requirePhones } from '../runtime.js';
 
-const baseUrl = 'https://www.receive-smss-online.com/';
+const baseUrl = 'https://www.receive-smss-online.com';
+const origins = [baseUrl, 'https://receive-smss-online.com'];
+export const getCountryUrl = (_country: Country) => `${baseUrl}/`;
 
-export interface Message {
-  ago: number;
-  agoText: string;
-  message: string;
-  otp?: string;
-  url: string;
-}
-
-const parseMessages = async (page: Page) => {
-  const currentUrl = page.url();
-  const rowLocator = 'tr';
-
-  const messageRows = await page.$$eval(rowLocator, (rows) =>
-    rows.map((row) => ({
-      message: row.children[1]?.textContent?.trim() ?? '',
-      from: row.children[0]?.textContent?.trim() ?? '',
-      ago: row.children[2]?.textContent?.trim() ?? ''
-    }))
-  );
-
-  return messageRows
-    .filter((row) => row.ago.length && row.message.length)
-    .map((row) => {
-      const agoParsed = parseTimeAgo(row.ago);
-
-      return {
-        ago: agoParsed,
-        agoText: row.ago,
-        message: `${row.from} ${row.message}`,
-        url: currentUrl
-      } as Message;
-    })
-    .filter((message) => message.ago);
-};
-
-const recursivelyCheckMessages = async (
-  page: Page,
-  askedAt: number,
-  matcher: string | string[],
-  recheckDelay: number
-): Promise<Message | Message[]> => {
-  await page.waitForNetworkIdle({ idleTime: 1500 });
-
-  const parsed = (await parseMessages(page)) || [];
-  if (!parsed.length) {
-    return [];
-  }
-
-  const matches = parsed.filter(
-    (parsed) =>
-      parsed?.ago >= askedAt &&
-      (Array.isArray(matcher) ? matcher.some((m) => parsed?.message?.includes(m)) : parsed?.message?.includes(matcher))
-  );
-
-  if (matches.length) {
-    return matches.map((match) => ({
-      ...match,
-      ...{ otp: tryParseOtpCode(match.message) }
-    }));
-  }
-
-  const match = matches.at(0);
-
-  if (match) {
-    match.otp = tryParseOtpCode(match.message);
-    return match;
-  }
-
-  consola.info(
-    `not found message within ${stringifyTriggerOtpTimeDiff(askedAt)} range, latest ${
-      parsed.shift()?.agoText
-    }, will try after ${recheckDelay}s...`
-  );
-
-  await page.reload();
-  await delay(recheckDelay);
-  return recursivelyCheckMessages(page, askedAt, matcher, recheckDelay);
-};
-
-const getPhoneUrl = async (phone: string, country: Country) => {
-  const phones = await getPhones(Source.ReceiveSmssOnlineCom, country);
-  return phones.find((p) => p.phone === phone.replace(country === 'USA' ? '+1' : '+', ''))?.url;
+export const getReceiveSmssOnlineComPhones = async (page: Page, country: Country, nextUrl?: string): Promise<PhoneNumberListReply> => {
+  if (!countries.includes(country)) return { phones: [] };
+  await navigate(page, nextUrl ?? `${baseUrl}/`, origins);
+  await page.waitForSelector('h2', { timeout: 10_000 });
+  const label = Countries[country as keyof typeof Countries];
+  const records = await page.$$eval('a[href]', (links, countryLabel) => links.flatMap((link) => {
+    const card = link.closest('div.rounded-lg, div.rounded-xl, article') ?? link.parentElement;
+    if (!card?.textContent?.includes(countryLabel)) return [];
+    const numberText = card.querySelector('.font-medium.text-sm')?.textContent ?? link.textContent ?? '';
+    const phone = numberText.match(/\+\d[\d ()-]{6,18}/)?.[0];
+    return phone ? [{ phone, url: (link as HTMLAnchorElement).href }] : [];
+  }), label);
+  // The live public page currently states zero numbers; surface unavailability explicitly.
+  return { phones: requirePhones(normalizePhones(records, country, origins)), nextPageUrl: await nextPage(page, origins) };
 };
 
 export const handleReceiveSmssOnlineCom = async (page: Page, options: OtpRouteHandlerOptions) => {
-  consola.start(`starting automated check for otp`);
-
-  const url = await getPhoneUrl(options.phoneNumber, options.country);
-
-  consola.info(`found phone url: ${url}`);
-
-  if (!url) {
-    return;
-  }
-
-  await page.goto(url);
-  await delay(defaultRecheckDelay);
-
-  const match = await recursivelyCheckMessages(
-    page,
-    options.askedOtpAt || 0,
-    options.matcher,
-    options?.interval || defaultRecheckDelay
-  );
-
-  return match;
-};
-
-export const getReceiveSmssOnlineComPhones = async (page: Page, country: Country): Promise<PhoneNumberListReply> => {
-  consola.start(`starting parsing numbers for ${country.toString()}`);
-
-  const { phones, nextPageUrl } = await parseNumbersPage(baseUrl, page, country);
-
-  return {
-    phones,
-    nextPageUrl
-  };
-};
-
-const parseNumbersPage = async (url: string, page: Page, country: Country): Promise<PhoneNumberListReply> => {
-  await page.goto(url);
-  consola.start(`parsing page ${page.url()}...`);
-  await page.waitForSelector('h2', { timeout: 5000 });
-  const numberGridLocator = 'div.container:has(h2) > div:nth-child(3)';
-  await page.waitForSelector(numberGridLocator, { timeout: 5000 });
-  await delay(1);
-
-  const targetCountry = Countries[country as keyof typeof Countries];
-
-  const phones = await page.$$eval(
-    `${numberGridLocator} div`,
-    (cards, baseUrl, country) =>
-      cards
-        .filter((card) =>
-          card?.querySelector('div span.font-medium.text-white')?.textContent?.trim()?.includes(country)
-        )
-        .map((card) => {
-          const phoneNumber = card?.querySelector('.font-medium.text-sm')?.textContent?.trim() ?? '';
-          const formattedPhone = phoneNumber
-            .replace(/[\s\(\)]/g, '')
-            .replace(country === 'United States' ? '+1' : '+', '');
-          const url = card?.querySelector('a')?.getAttribute('href') ?? '';
-
-          return {
-            phone: formattedPhone,
-            url: `${baseUrl}${url}`.replace(/\/\//g, '/')
-          };
-        })
-        .filter((record) => record.phone.length >= 10 || record.phone.length <= 13),
-    baseUrl,
-    targetCountry
-  );
-
-  return {
-    phones
-  };
+  if ((options.page ?? 1) > 1) throw new ProviderError('Inbox pagination is unverified for this provider', 400);
+  const url = await findPhoneUrl(page, Source.ReceiveSmssOnlineCom, options.country, options.phoneNumber, getReceiveSmssOnlineComPhones, config.maxProviderPages);
+  await navigate(page, url, origins);
+  await page.waitForSelector('table', { timeout: 10_000 });
+  return pollMessages(page, options, async () => {
+    const rows = await page.$$eval('tr', (items) => items.flatMap((row) => {
+      const cells = Array.from(row.querySelectorAll('td'));
+      return cells.length >= 3 ? [{ message: cells[1].textContent?.trim() ?? '', agoText: cells[2].textContent?.trim() ?? '' }] : [];
+    }));
+    return convertMessages(rows, page.url());
+  }, origins);
 };
