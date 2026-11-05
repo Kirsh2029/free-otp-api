@@ -1,46 +1,234 @@
-# otp.shelex.dev
+# Number API
 
-Get list of phone numbers and specific sms for specific phone number to use in tests which involve a lot of otp codes.
+Redis-backed API for discovering shared public SMS numbers and reading their public inboxes for authorized testing. It modernizes the original [Shelex/free-otp-api](https://github.com/Shelex/free-otp-api) project while preserving its country, number-list and message response shapes.
 
-<a href="https://otp-api.shelex.dev/docs"><img src="https://raw.githubusercontent.com/swagger-api/swagger.io/wordpress/images/assets/SW-logo-clr.png" height="50"></a>
+- API: **https://number-api.inboxcloudkit.xyz/api**
+- Swagger: **https://number-api.inboxcloudkit.xyz/docs**
+- Readiness: **https://number-api.inboxcloudkit.xyz/health**
 
-## Description
+These are the intended production URLs. DNS, HTTPS and a production server must be configured separately; cloning this project does not deploy them. The existing **inboxcloudkit.xyz** website is a separate project. Deploy only the API subdomain.
 
-- basically, it is a puppeteer instance that parses specific pages when requested and api on top of it.
-- each request will spawn a new anonymous page, up to 15 pages.
-- every 10 minutes browser is closed to avoid memory issues with long-living browser window.
-- phone numbers are cached with redis to avoid refetching each time.
-- a regular job is triggered to refresh the cache.
-- supports free sms testing services:
-  - [receive-sms-free.cc](https://receive-sms-free.cc/)
-  - [anonymsms.com](https://anonymsms.com/)
-  - [quackr.io](https://quackr.io/temporary-numbers)
-  - [smstome.com](https://smstome.com/)
-  - [receivesms.co](https://www.receivesms.co/)
-  - [receiveasmsonline.com](https://receiveasmsonline.com/)
-  - [receive-smss-online.com](https://www.receive-smss-online.com/)
+## Architecture
 
-## API
+Node.js 24+ and TypeScript run a Fastify 5 API. Standard Puppeteer and puppeteer-cluster parse public provider pages in isolated browser contexts, with bounded navigation, task queues, pagination and retries. No stealth or challenge-solving plugins are installed. Redis is required: startup connects and pings Redis before opening the API socket. Cached number lists expire after 12 hours by default, and provider-specific cron jobs refresh them approximately every eight hours. Failed refreshes retain the previous cache.
 
-API has `https://otp-api.shelex.dev/api/` baseUrl.  
+The optional React frontend is built independently with Vite. The API does not serve or replace the root website. Docker runs the API and a private persistent Redis service; a reverse proxy handles HTTPS.
 
-- get list of countries available:
-  ```bash
-      GET https://otp-api.shelex.dev/api/countries
-  ```
-- get list of phone numbers per country:
-  ```bash
-      GET https://otp-api.shelex.dev/api/list/{{country}}
-  ```
-- get otp code:
-  ```
-      GET https://otp-api.shelex.dev/api/{{country}}/{{phone}}?match={{substring}}&ago={{ago}}
-  ```
-  - `country` is a country name - USA, UK, Ukraine, Canada, Moldova, Spain... full list in [docs](https://otp-api.shelex.dev/docs/static/index.html) in "available values" section. Basically is a union of all supported countries across services.
-  - `phone` - is a phone number as it is specified in url, 10-13 digits, without "+" sign
-  - `match` (optional) - substring to look for in the sms
-  - `ago` (optional, `30s` by default) - the max time ago to look for specific sms, units are `s` - secons, `m` - minutes, `h` - hours, for example: `10s`, `5m`, `1h`, etc. Will be converted to timestamp.
-  - `since` (optional) - instead of `ago` string exact timestamp could be specified.
-  - `source` (optional) - specify service which provide phone number, uses `receive-sms-free.cc` by default.
-  - recursively queries the first page of latest phone number messages and matches sms by `match` substring or `ago`/`since` query parameter, refreshing page every 5 seconds.
-  - returns sms that matches provided inputs and tries to parse otp code..
+## Quick start with Docker
+
+Install Docker Engine/Desktop with Compose v2.24+ and Git, then:
+
+~~~sh
+git clone https://github.com/Kirsh2029/free-otp-api.git
+cd free-otp-api
+cp .env.example .env
+docker compose up -d --build
+docker compose logs -f
+~~~
+
+The API binds to 127.0.0.1:3030 on the Docker host. Redis has no published host port. Compose waits for Redis health before starting the API; both services restart automatically. The Redis named volume keeps data across container recreation.
+
+~~~sh
+curl --fail http://127.0.0.1:3030/health
+curl --fail --location http://127.0.0.1:3030/docs
+curl --fail http://127.0.0.1:3030/docs/json
+docker compose ps
+docker compose restart
+docker compose stop
+docker compose up -d
+# Remove containers while retaining cached data:
+docker compose down
+~~~
+
+Chrome for Testing is packaged for Linux x86_64. Compose selects linux/amd64 so the package-matched browser also works on ARM Docker hosts through emulation. A compatible Docker runtime with amd64 support is required. See [deployment details](docs/deployment.md) for browser installation, platform constraints and reverse-proxy setup. Do not mount a host node_modules directory into this container.
+
+## Local installation
+
+Prerequisites: Node.js 24 or newer, npm, Redis, and the browser libraries required by Puppeteer. npm ci installs the browser version matched to the pinned Puppeteer package. On Linux, the Puppeteer installer can install system dependencies:
+
+~~~sh
+git clone https://github.com/Kirsh2029/free-otp-api.git
+cd free-otp-api
+npm ci
+cp .env.example .env
+# Linux only, if browser system libraries are missing (requires package-install privileges):
+npx puppeteer browsers install chrome --install-deps
+~~~
+
+Start a loopback-only Redis instance with persistence (or use an existing reachable Redis):
+
+~~~sh
+mkdir -p /tmp/number-api-redis
+redis-server --bind 127.0.0.1 --port 6379 --appendonly yes --dir /tmp/number-api-redis
+~~~
+
+In another terminal:
+
+~~~sh
+npm run build
+npm start
+# For development, instead:
+npm run dev
+~~~
+
+For Redis on a different host or port, set REDIS_URL in .env. A redis:// or rediss:// URL takes precedence over separate host, port and password settings. For a production Redis instance use a durable data directory and your platform's service manager. Do not publish its port to the internet.
+
+## API endpoints
+
+| Method | Path | Response |
+| --- | --- | --- |
+| GET | / | Identity, configured API base, docs and health paths |
+| GET | /health | 200 when Redis is ready; 503 when degraded |
+| GET | /health/live | Process liveness |
+| GET | /docs | Swagger UI |
+| GET | /docs/json | OpenAPI document |
+| GET | /api/providers | All historical provider IDs, enabled state, verification status and reasons |
+| GET | /api/countries | Legacy array of country/source/URL/current cached count |
+| GET | /api/list/:country | phones array, optional upstream errors and pagination |
+| GET | /api/:country/:phoneNumber | requested, result (or null), results and pagination |
+
+The configured API_BASE_URL pathname determines the API prefix. The defaults above use /api. Health and docs remain at the host root.
+
+~~~sh
+curl --fail 'https://number-api.inboxcloudkit.xyz/api/countries'
+curl --fail 'https://number-api.inboxcloudkit.xyz/api/providers'
+curl --fail 'https://number-api.inboxcloudkit.xyz/api/list/UK?source=anonymsms.com&page=1&limit=100'
+~~~
+
+Use a number actually returned by the listing, keeping its source:
+
+~~~sh
+PHONE=NUMBER_RETURNED_BY_LIST
+curl --fail --get "https://number-api.inboxcloudkit.xyz/api/UK/$PHONE" \
+  --data-urlencode 'source=anonymsms.com' \
+  --data-urlencode 'since=0' \
+  --data-urlencode 'match=verification' \
+  --data-urlencode 'limit=20'
+~~~
+
+- Country names retain the historical enum identifiers, such as USA, UK, Germany and SouthKorea. /countries reports enabled providers' supported countries.
+- Phone numbers return as E.164 digits **including the calling code**, without a leading plus. Requests also accept an encoded leading plus or correctly formatted national numbers for the selected country. Invalid numbers return 400.
+- source filters /countries, /list and message requests. Always carry the listing's source into message requests. Without source, message lookup first uses a matching cached provider, then prefers an eligible verified source.
+- list page starts at 1; limit is 1–1000 (default 1000). These paginate the combined cached/live results. Upstream listing pagination is collected under MAX_PROVIDER_PAGES and an overall browser task deadline.
+- Inbox page starts at 1 and follows provider pagination where supported. An unsupported inbox page returns an explicit error. limit bounds matching messages.
+- match is a case-sensitive substring, decoded once by Fastify. URL-encode query values.
+- ago defaults to 30s; supported suffixes are s, m, h, d and w. since is Unix milliseconds, overrides ago, and accepts 0 to inspect older public messages.
+- timeout defaults to 0 (one inbox read); set milliseconds up to 20000 for bounded polling. This retains polling without infinite recursion.
+- result is the first match or null; results contains every returned match, including a single match. OTP extraction finds complete 4–8 digit sequences rather than fragments of longer numbers.
+- /countries counts describe the Redis cache, not a live inventory claim. An initially empty cache has zero counts; /list performs the live lookup. The X-Number-Counts response header marks this distinction.
+- Invalid requests return 400. Removed inboxes may return 404; unsupported, blocked or unavailable sources return 503; upstream failures return 502; deadlines return 504. Partial source failure returns successful phone results plus an errors array. Provider failures are never disguised as successful empty lists.
+
+## Backend environment
+
+All backend application settings are parsed in src/config.ts. Copy .env.example; .env is ignored by Git and excluded from the Docker image. URL settings are validated and trailing slashes normalized. Secrets belong only in backend configuration.
+
+| Variable | Default/example | Purpose |
+| --- | --- | --- |
+| API_BASE_URL | https://number-api.inboxcloudkit.xyz/api | Public API base and Swagger server; default works for this deployment |
+| PUBLIC_URL | https://number-api.inboxcloudkit.xyz | Legacy fallback used only when API_BASE_URL is absent; root URLs acquire /api |
+| NODE_ENV | development; Compose sets production | Runtime environment |
+| HOST | 0.0.0.0 | Listen address; use 127.0.0.1 for a local-only native process |
+| PORT | 3030 | API listen port |
+| CORS_ORIGINS | https://dashboard.example.com | Optional comma-separated additional exact origins |
+| REDIS_URL | redis://127.0.0.1:6379 | Optional Redis/TLS URL; overrides REDIS_HOST/PORT/PASSWORD |
+| REDIS_HOST | 127.0.0.1 | Redis host when URL is absent |
+| REDIS_PORT | 6379 | Redis port when URL is absent |
+| REDIS_PASSWORD | unset | Redis password when URL is absent |
+| REDIS_CONNECT_TIMEOUT_MS | 10000 | Overall connection/handshake deadline |
+| REDIS_COMMAND_TIMEOUT_MS | 5000 | Command deadline, including half-open network failures |
+| REDIS_RECONNECT_ATTEMPTS | 3 | Bounded reconnect attempts; 0 disables retries |
+| CACHE_TTL_SECONDS | 43200 | Number-list expiry |
+| BROWSER_MAX_CONCURRENCY | 3 | Concurrent isolated browser contexts |
+| BROWSER_TASK_TIMEOUT_MS | 60000 | Browser queue/task and whole-listing deadline |
+| BROWSER_NAVIGATION_TIMEOUT_MS | 30000 | Individual navigation/selector deadline |
+| BROWSER_REFRESH_INTERVAL_MS | 600000 | Drain and recreate the browser periodically |
+| PUPPETEER_EXECUTABLE_PATH | unset | Optional managed browser binary; package-matched browser is preferred |
+| PUPPETEER_NO_SANDBOX | false; Compose sets true | Explicit container browser compatibility setting |
+| MAX_PROVIDER_PAGES | 50 | Maximum public listing pages; exceeded limits return an error |
+| PROVIDER_RETRIES | 2 | Additional attempts for transient failures; restricted/unavailable pages are not retried |
+| PROXY | http://proxy.example.com:8080 | Optional ordinary egress proxy without credentials/query/fragment |
+| API_PORT | 3030 | Compose host port only; internal API port remains 3030 |
+
+Default CORS origins are https://inboxcloudkit.xyz, https://www.inboxcloudkit.xyz, and HTTP localhost/127.0.0.1 on ports 3000 and 5173. Additional origins are additive. Preflight OPTIONS works, credentials are omitted, and wildcard origins are rejected. CORS governs browser access; it is not API authentication.
+
+Puppeteer's installer also recognizes PUPPETEER_CACHE_DIR and PUPPETEER_SKIP_DOWNLOAD. They are build/install controls rather than application settings; Docker sets its own browser cache directory. Set TEST_REDIS_URL when running the real-Redis tests.
+
+## Frontend configuration
+
+The frontend has its own .env.example and build-time settings. It does not load the backend .env. See [the frontend guide](ui/README.md).
+
+~~~sh
+cd ui
+npm ci
+cp .env.example .env
+# Edit VITE_API_BASE_URL to http://localhost:3030/api for a local API.
+npm run dev
+npm test
+npm run build
+~~~
+
+VITE_API_BASE_URL defaults to https://number-api.inboxcloudkit.xyz/api. Backward-compatible REACT_APP_API_BASE_URL, REACT_APP_API_HOST and REACT_APP_API_PROTOCOL are accepted when the modern setting is absent. Rebuild after changing these values. Serve ui/dist on a separate preview host or an explicitly selected existing frontend deployment; this project does not install it on inboxcloudkit.xyz.
+
+## Provider status
+
+The full [provider investigation](docs/providers.md) records dated country/inbox URLs, DOM changes, pagination and access-policy evidence. Verification applies to the tested countries and sampled public inboxes, not every provider country or number.
+
+| Stable source ID | Status |
+| --- | --- |
+| anonymsms.com | Verified UK listing/inbox and inbox pagination; now asms.ai. Some US listings are stale. |
+| receivesms.co | Verified USA listing/inbox and both pagination types |
+| receivesmsonline.com | Verified UK listing/inbox on receiveasmsonline.com; historical ID retained |
+| receive-sms-free.cc | Enabled, unverified in the application browser: HTTP 403; static public HTML alone is not a working integration claim |
+| smstome.com | Enabled, unverified in the application browser: HTTP 403; Sweden's dead endpoint excluded |
+| receive-smss-online.com | Enabled, unverified: public inventory is zero, no inbox available to test |
+| quackr.io | Disabled: current provider terms explicitly prohibit scraping |
+
+Restrictions are returned honestly. Authentication, CAPTCHAs and access checks are not bypassed. Inspect /api/providers to see current release metadata; verifiedAt records a historical successful check, not a continuous uptime guarantee.
+
+## Testing
+
+~~~sh
+npm ci
+npm run build
+npm run lint
+# Provide a separate test Redis. Tests use unique keys and remove their test data.
+TEST_REDIS_URL=redis://127.0.0.1:6379 npm test
+npm --prefix ui ci
+npm --prefix ui test
+npm --prefix ui run build
+docker compose config --quiet
+docker compose up -d --build
+curl --fail http://127.0.0.1:3030/health
+~~~
+
+Without TEST_REDIS_URL, the live cache/expiry and network-proxy Redis checks are explicitly skipped; all deterministic tests still run. Tests cover configuration, CORS, Swagger, route validation/contracts, phone parsing, OTP extraction, provider registration, pagination, network deadlines and browser lifecycle. Live public-provider checks are separate because upstream inventory and access restrictions change. Use a current returned number rather than inventing a test inbox.
+
+The dated [verification record](docs/verification.md) distinguishes automated checks, actual public-provider integration, Docker lifecycle checks and the remaining production deployment work.
+
+## Domain, HTTPS and deployment
+
+Create a DNS A record for **number-api.inboxcloudkit.xyz** pointing at the deployment server. Add AAAA only when the server accepts IPv6. Keep existing root/www records and website configuration unchanged. Open public ports 80/443; proxy only this hostname to the loopback API on port 3030, preserving /api and /docs paths. Obtain a certificate for this subdomain and forward Host and X-Forwarded-* headers. See the exact isolated Nginx configuration and certificate commands in [docs/deployment.md](docs/deployment.md).
+
+Production verification:
+
+~~~sh
+curl --fail https://number-api.inboxcloudkit.xyz/health
+curl --fail --location https://number-api.inboxcloudkit.xyz/docs
+curl --fail https://number-api.inboxcloudkit.xyz/docs/json
+curl --fail https://number-api.inboxcloudkit.xyz/api/countries
+~~~
+
+## Troubleshooting and privacy
+
+- Startup exits before listening: check Redis availability, credentials, URL scheme and connect deadline. There is no in-memory Redis replacement.
+- /health returns 503: Redis is down or responding too slowly. /health/live distinguishes process liveness from dependency readiness.
+- Country counts are zero: cache may be cold; call the relevant /list route. Failed sources produce explicit errors.
+- Provider returns 403, an interactive-check page, 502 or 503: see provider status and logs; retry later or select another available listed source. Do not solve or circumvent access checks.
+- Browser executable/libraries missing: reinstall the package-matched browser and dependencies; rebuild Docker after dependency updates.
+- ARM Docker host: enable amd64 emulation. A generic ARM Chromium substitution has not been verified for this image.
+- Pagination exceeds its limit or deadline: increase the documented bound deliberately, inspect provider inventory and monitor resource usage. Failed partial scans do not replace a complete cached list.
+- CORS error: include the frontend's exact origin in CORS_ORIGINS and restart the API. Backend and frontend base URLs are configured independently.
+- HTTPS path errors: proxy the original request path; stripping /api or adding it twice breaks routes.
+- Public deployment: put resource/rate limits at the reverse proxy appropriate to your traffic. This API starts browser work and is not an authenticated private messaging system.
+
+Public SMS numbers and messages are shared, visible to other people, and controlled by third parties. Use the service only for authorized tests. Never rely on it for sensitive accounts, confidential messages, account recovery or durable ownership of a number. No guarantee is made that an inbox remains available or that third-party timestamps and inventory remain correct. Inspect provider terms before deploying automated access.
