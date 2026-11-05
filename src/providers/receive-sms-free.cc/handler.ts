@@ -3,7 +3,7 @@ import { countries, Countries } from './countries.js';
 import type { OtpRouteHandlerOptions, PhoneNumberListReply } from '../types.js';
 import type { Country } from '../providers.js';
 import { normalizePhoneNumber } from '../helpers.js';
-import { convertMessages, inboxPage, navigate, nextPage, normalizePhones, pollMessages, requirePhones } from '../runtime.js';
+import { waitForInboxReady, parseMessageRows, inboxPage, navigate, nextPage, normalizePhones, pollMessages, requirePhones } from '../runtime.js';
 
 const baseUrl = 'https://receive-sms-free.cc';
 const origins = [baseUrl];
@@ -29,12 +29,12 @@ export const handleReceiveSmsFreeCC = async (page: Page, options: OtpRouteHandle
   const phone = normalizePhoneNumber(options.phoneNumber, options.country);
   const url = inboxPage(`${getCountryUrl(options.country)}${encodeURIComponent(phone)}/`, options.page, 'html');
   await navigate(page, url, origins);
-  await page.waitForSelector('.sms-item, .casetext', { timeout: 10_000 });
   return pollMessages(page, options, async () => {
+    await waitForInboxReady(page, '.sms-item, .casetext > .row', '.card-body p, .casetext');
     const rows = await page.$$eval('.sms-item, .casetext > .row', (items) => items.map((item) => ({
       agoText: item.querySelector('.time-text')?.textContent?.trim() ?? item.children[1]?.textContent?.trim() ?? '',
       message: item.querySelector('.sms-content')?.textContent?.trim() ?? item.children[2]?.textContent?.trim() ?? ''
     })));
-    return convertMessages(rows, page.url());
+    return parseMessageRows(rows, page.url());
   }, origins);
 };

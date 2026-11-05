@@ -40,8 +40,12 @@ export const normalizePhoneNumber = (input: string, country?: string): string =>
   return parsed.number.slice(1);
 };
 
-export const tryParseOtpCode = (line: string): string | undefined =>
-  line.match(/(?:^|[^\d])(\d{4,8})(?!\d)/)?.[1];
+export const tryParseOtpCode = (line: string): string | undefined => {
+  // Prefer the explicitly labelled code over dates, prices or unrelated short IDs.
+  const labelled = line.match(/(?:\b(?:otp|pin|code|passcode|verification|security|authentication)\b|验证码|驗證碼)[^\d]{0,40}(\d{3}[ -]\d{3}|\d{4,8})(?!\d)/i)?.[1];
+  if (labelled) return labelled.replace(/[ -]/g, '');
+  return line.match(/(?:^|[^\d])(\d{4,8})(?!\d)/)?.[1];
+};
 
 export const filterUniquePhones = (phones: PhoneNumber[]): PhoneNumber[] => {
   const seen = new Set<string>();

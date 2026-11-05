@@ -3,7 +3,7 @@ import { countries, Countries } from './countries.js';
 import type { OtpRouteHandlerOptions, PhoneNumberListReply } from '../types.js';
 import type { Country } from '../providers.js';
 import { normalizePhoneNumber } from '../helpers.js';
-import { convertMessages, navigate, nextPage, normalizePhones, pollMessages, ProviderError, requirePhones } from '../runtime.js';
+import { waitForInboxReady, parseMessageRows, navigate, nextPage, normalizePhones, pollMessages, ProviderError, requirePhones } from '../runtime.js';
 
 const baseUrl = 'https://receiveasmsonline.com';
 const origins = [baseUrl];
@@ -29,12 +29,13 @@ export const handleReceiveSmsOnlineCom = async (page: Page, options: OtpRouteHan
   const phone = normalizePhoneNumber(options.phoneNumber, options.country);
   await navigate(page, `${getCountryUrl(options.country)}${encodeURIComponent(phone)}/`, origins);
   // Messages hydrate after the public page loads. Loading skeletons are not an empty inbox.
-  await page.waitForSelector('div[class*="Telephone__Message-"]', { timeout: 15_000 });
   return pollMessages(page, options, async () => {
+    await waitForInboxReady(page, 'div[class*="Telephone__Message-"]', 'div[class*="Telephone__MessagesContainer"] p');
     const rows = await page.$$eval('div[class*="Telephone__Message-"]', (items) => items.map((row) => ({
       message: row.children[0]?.children[0]?.textContent?.trim() ?? '',
+      sender: row.children[1]?.children[0]?.textContent?.trim() ?? '',
       agoText: row.children[1]?.children[1]?.textContent?.trim() ?? ''
     })));
-    return convertMessages(rows, page.url());
+    return parseMessageRows(rows, page.url());
   }, origins);
 };

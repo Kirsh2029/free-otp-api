@@ -3,7 +3,7 @@ import { Countries, countries } from './countries.js';
 import type { Country } from '../providers.js';
 import type { OtpRouteHandlerOptions, PhoneNumberListReply } from '../types.js';
 import { normalizePhoneNumber } from '../helpers.js';
-import { convertMessages, inboxPage, navigate, nextPage, normalizePhones, pollMessages, ProviderError, requirePhones } from '../runtime.js';
+import { waitForInboxReady, parseMessageRows, inboxPage, navigate, nextPage, normalizePhones, pollMessages, ProviderError, requirePhones } from '../runtime.js';
 
 // AnonymSMS rebranded in 2026. The original source identifier remains stable.
 const baseUrl = 'https://asms.ai';
@@ -28,8 +28,8 @@ export const handleAnonymSms = async (page: Page, options: OtpRouteHandlerOption
   const phone = normalizePhoneNumber(options.phoneNumber, options.country);
   await navigate(page, inboxPage(`${baseUrl}/number/${encodeURIComponent(phone)}`, options.page, 'asms'), origins);
   if (!new URL(page.url()).pathname.startsWith(`/number/${phone}`)) throw new ProviderError('Provider has removed this public inbox', 404);
-  await page.waitForSelector('main', { timeout: 10_000 });
   return pollMessages(page, options, async () => {
+    await waitForInboxReady(page, 'main time[datetime]', 'main p');
     const rows = await page.$$eval('time[datetime]', (times) => times.map((time) => {
       const card = time.parentElement?.parentElement;
       return {
@@ -38,6 +38,6 @@ export const handleAnonymSms = async (page: Page, options: OtpRouteHandlerOption
         message: card?.querySelector('p')?.textContent?.trim() ?? ''
       };
     }));
-    return convertMessages(rows, page.url());
+    return parseMessageRows(rows, page.url());
   }, origins);
 };

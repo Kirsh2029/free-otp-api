@@ -61,3 +61,12 @@ test('time descriptions do not round a few seconds into hours and years', () => 
 test('condition waiting has a finite timeout', async () => {
   await assert.rejects(waitFor(() => false, 1), /Timed out/);
 });
+
+test('OTP extraction prefers labelled codes over dates and handles grouped verification digits', () => {
+  assert.equal(tryParseOtpCode('2026-11-05: Your verification code is 012345.'), '012345');
+  assert.equal(tryParseOtpCode('Cash App: Code: 123-456. Never share it.'), '123456');
+  assert.equal(tryParseOtpCode('Your code is 123 456.'), '123456');
+  assert.equal(tryParseOtpCode('验证码：098765'), '098765');
+  assert.equal(tryParseOtpCode('NUMBERTEST-abcdefghijklmnop code 654321'), '654321');
+  assert.equal(tryParseOtpCode('Your code references phone 12025550100'), undefined);
+});

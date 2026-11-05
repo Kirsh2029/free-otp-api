@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { test, mock } from 'node:test';
 import type { Page } from 'puppeteer';
-import { Source, Sources, providers, type Provider, type PhoneNumberListReply } from '../src/providers/index.js';
+import { Source, Sources, providers, type Provider, type PhoneNumberListReply, type MessageReadDiagnostics } from '../src/providers/index.js';
 import { browser } from '../src/browser/cluster.js';
 import { getReceiveSmsCoPhones } from '../src/providers/receivesms.co/handler.js';
 import { config } from '../src/config.js';
 import { getPhonesListTask } from '../src/providers/getPhonesListTask.js';
-import { assertProviderUrl, convertMessages, inboxPage, pollMessages, ProviderError } from '../src/providers/runtime.js';
+import { assertProviderUrl, convertMessages, inboxPage, parseMessageRows, parseProviderTimestamp, pollMessages, ProviderError, waitForInboxReady } from '../src/providers/runtime.js';
 
 const page = { isClosed: () => false, url: () => 'https://receive-sms-free.cc/inbox/' } as unknown as Page;
 const provider: Provider = {
@@ -136,4 +136,96 @@ test('ReceiveSMS explicit empty next page terminates pagination while initial em
   } as unknown as Page;
   assert.deepEqual(await getReceiveSmsCoPhones(emptyPage, 'USA', emptyPage.url()), { phones: [] });
   await assert.rejects(getReceiveSmsCoPhones(emptyPage, 'USA'), (error: unknown) => error instanceof ProviderError && error.statusCode === 503);
+});
+
+test('provider metadata separates historical inbox reads from controlled fresh delivery', () => {
+  for (const entry of Object.values(Sources)) {
+    assert.ok(entry.verification?.listing);
+    assert.ok(entry.verification?.inboxRead);
+    assert.equal(entry.verification?.freshSmsDelivery.status, 'unverified');
+  }
+});
+
+test('provider absolute timestamps have deterministic UTC semantics and reject calendar rollovers', () => {
+  const now = Date.UTC(2026, 10, 5, 20);
+  assert.equal(parseProviderTimestamp('2026-11-05 17:32:21', now), Date.UTC(2026, 10, 5, 17, 32, 21));
+  assert.equal(parseProviderTimestamp('2026/11/05 17:32', now), Date.UTC(2026, 10, 5, 17, 32));
+  assert.equal(parseProviderTimestamp('2026 11 05 - 17:32', now), Date.UTC(2026, 10, 5, 17, 32));
+  assert.equal(parseProviderTimestamp('2026-11-05T19:32:21+02:00', now), Date.UTC(2026, 10, 5, 17, 32, 21));
+  assert.equal(parseProviderTimestamp('2026-02-31 17:32:21', now), 0);
+  assert.equal(parseProviderTimestamp('2026-11-05 25:32:21', now), 0);
+  assert.equal(parseProviderTimestamp('2026-11-05 23:32:21', now), 0);
+  assert.equal(parseProviderTimestamp('2 min. ago', now), now - 120_000);
+  assert.equal(parseProviderTimestamp('unrecognized time', now), 0);
+});
+
+test('read diagnostics count actual parse drops and distinguish filters from an empty inbox', async () => {
+  let diagnostics: MessageReadDiagnostics | undefined;
+  const rows = parseMessageRows([
+    { agoText: '2026-11-05 10:00:00', message: 'old code 1234' },
+    { agoText: '2026-11-05 11:00:00', message: 'test code 012345' },
+    { agoText: '2026-11-05 11:30:00', message: 'different message' },
+    { agoText: 'unrecognized', message: 'bad timestamp' },
+    { agoText: '1 minute ago', message: '' }
+  ], page.url(), Date.UTC(2026, 10, 5, 12));
+  const matches = await pollMessages(page, {
+    country: 'USA', phoneNumber: '12025550100', matcher: 'test', askedOtpAt: Date.UTC(2026, 10, 5, 10, 30), timeoutMs: 0,
+    onRead: (value) => { diagnostics = value; }
+  }, async () => rows, ['https://receive-sms-free.cc']);
+  assert.equal(matches.length, 1);
+  assert.equal(diagnostics?.rawRowCount, 5);
+  assert.equal(diagnostics?.parseDrops, 2);
+  assert.equal(diagnostics?.droppedTimestampCount, 1);
+  assert.equal(diagnostics?.droppedMessageCount, 1);
+  assert.equal(diagnostics?.observedMessageCount, 3);
+  assert.equal(diagnostics?.timeFilteredCount, 1);
+  assert.equal(diagnostics?.matcherFilteredCount, 1);
+  assert.equal(diagnostics?.matchedMessageCount, 1);
+  assert.equal(diagnostics?.returnedMessageCount, 1);
+  assert.equal(diagnostics?.emptyInbox, false);
+  assert.equal(diagnostics?.providerUrl, page.url());
+  assert.equal(diagnostics?.newestMessageAt, Date.UTC(2026, 10, 5, 11, 30));
+  assert.equal(JSON.stringify(diagnostics).includes('012345'), false);
+  assert.equal(JSON.stringify(diagnostics).includes('different message'), false);
+});
+
+test('a nonempty inbox with unparseable timestamps reports diagnostic evidence then fails', async () => {
+  let diagnostics: MessageReadDiagnostics | undefined;
+  await assert.rejects(pollMessages(page, {
+    country: 'USA', phoneNumber: '12025550100', matcher: '', timeoutMs: 0, onRead: (value) => { diagnostics = value; }
+  }, async () => parseMessageRows([{ agoText: 'unknown', message: 'synthetic content' }], page.url()), ['https://receive-sms-free.cc']), /no message timestamps or content could be parsed/);
+  assert.equal(diagnostics?.rawRowCount, 1);
+  assert.equal(diagnostics?.droppedTimestampCount, 1);
+  assert.equal(diagnostics?.emptyInbox, false);
+});
+
+test('loading skeletons or missing inbox markup surface an error instead of a false empty success', async () => {
+  const loadingPage = {
+    isClosed: () => false,
+    waitForFunction: async () => { throw new Error('Timeout'); }
+  } as unknown as Page;
+  await assert.rejects(waitForInboxReady(loadingPage, '.message', '.empty', 1), /did not finish loading or its message markup changed/);
+});
+
+test('legacy parsed arrays preserve results without inventing raw parser diagnostics', async () => {
+  let telemetry = false;
+  const result = await pollMessages(page, {
+    country: 'USA', phoneNumber: '12025550100', matcher: '', timeoutMs: 0, onRead: () => { telemetry = true; }
+  }, async () => [{ ago: Date.now(), agoText: 'now', message: 'synthetic test', url: page.url() }], ['https://receive-sms-free.cc']);
+  assert.equal(result.length, 1);
+  assert.equal(telemetry, false);
+});
+
+test('AnonymSMS excludes the USA country whose eight advertised inboxes all redirected away', () => {
+  assert.equal(Sources[Source.AnonymSms].countries.includes('USA'), false);
+  assert.ok(Sources[Source.AnonymSms].unavailableCountries?.USA);
+  assert.equal(Sources[Source.AnonymSms].countries.includes('UK'), true);
+});
+
+test('providers that historically included senders preserve sender-based matching', async () => {
+  const parsed = parseMessageRows([{ sender: 'SyntheticSender', agoText: 'now', message: 'Your code is 654321' }], page.url());
+  const result = await pollMessages(page, { country: 'USA', phoneNumber: '12025550100', matcher: 'SyntheticSender', timeoutMs: 0 }, async () => parsed, ['https://receive-sms-free.cc']);
+  assert.equal(result.length, 1);
+  assert.equal(result[0].message, 'SyntheticSender Your code is 654321');
+  assert.equal(result[0].otp, '654321');
 });

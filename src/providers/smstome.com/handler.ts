@@ -3,7 +3,7 @@ import { Countries, countries } from './countries.js';
 import type { Country } from '../providers.js';
 import { Source, type OtpRouteHandlerOptions, type PhoneNumberListReply } from '../types.js';
 import { config } from '../../config.js';
-import { convertMessages, findPhoneUrl, inboxPage, navigate, nextPage, normalizePhones, pollMessages, requirePhones } from '../runtime.js';
+import { waitForInboxReady, parseMessageRows, findPhoneUrl, inboxPage, navigate, nextPage, normalizePhones, pollMessages, requirePhones } from '../runtime.js';
 
 const baseUrl = 'https://smstome.com';
 const origins = [baseUrl];
@@ -26,13 +26,13 @@ export const getSmsToMeComPhones = async (page: Page, country: Country, nextUrl?
 export const handleSmsToMe = async (page: Page, options: OtpRouteHandlerOptions) => {
   const url = await findPhoneUrl(page, Source.SmsToMeCom, options.country, options.phoneNumber, getSmsToMeComPhones, config.maxProviderPages);
   await navigate(page, inboxPage(url, options.page), origins);
-  await page.waitForSelector('table.mp-table, table.messagesTable', { timeout: 10_000 });
   return pollMessages(page, options, async () => {
+    await waitForInboxReady(page, 'table.mp-table .mp-cell-msg, table.messagesTable tr td:nth-child(3)', 'table.mp-table td, table.messagesTable td');
     const rows = await page.$$eval('table.mp-table tbody tr, table.messagesTable tr', (items) => items.flatMap((row) => {
       const cells = Array.from(row.querySelectorAll('td'));
       if (cells.length < 3) return [];
       return [{ agoText: cells[1].textContent?.trim() ?? '', message: cells[2].textContent?.trim() ?? '' }];
     }));
-    return convertMessages(rows, page.url());
+    return parseMessageRows(rows, page.url());
   }, origins);
 };

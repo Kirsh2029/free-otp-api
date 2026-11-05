@@ -3,7 +3,7 @@ import { Countries, countries } from './countries.js';
 import type { Country } from '../providers.js';
 import { Source, type OtpRouteHandlerOptions, type PhoneNumberListReply } from '../types.js';
 import { config } from '../../config.js';
-import { convertMessages, findPhoneUrl, navigate, nextPage, normalizePhones, pollMessages, ProviderError, requirePhones } from '../runtime.js';
+import { waitForInboxReady, parseMessageRows, findPhoneUrl, navigate, nextPage, normalizePhones, pollMessages, ProviderError, requirePhones } from '../runtime.js';
 
 const baseUrl = 'https://www.receivesms.co';
 const origins = [baseUrl, 'https://receivesms.co'];
@@ -35,12 +35,12 @@ export const handleReceiveSmsCo = async (page: Page, options: OtpRouteHandlerOpt
   let url = await findPhoneUrl(page, Source.ReceiveSmsCo, options.country, options.phoneNumber, getReceiveSmsCoPhones, config.maxProviderPages);
   if ((options.page ?? 1) > 1) url = `${url.replace(/\/+$/, '')}/${options.page}/`;
   await navigate(page, url, origins);
-  await page.waitForSelector('section.entry-list', { timeout: 10_000 });
   return pollMessages(page, options, async () => {
+    await waitForInboxReady(page, 'section.entry-list article.entry-card', 'section.entry-list, section.entry-list p');
     const rows = await page.$$eval('article.entry-card', (items) => items.map((item) => ({
       agoText: item.querySelector('.entry-right .muted')?.textContent?.trim() ?? '',
       message: item.querySelector('.sms')?.textContent?.trim() ?? ''
     })));
-    return convertMessages(rows, page.url());
+    return parseMessageRows(rows, page.url());
   }, origins);
 };

@@ -63,28 +63,98 @@ export const nextPage = async (page: Page, origins: string[]): Promise<string | 
   return assertProviderUrl(href, origins);
 };
 
-export interface RawMessage { agoText: string; message: string; timestamp?: string; }
+/** A loading skeleton or changed markup must not be reported as a successful empty inbox. */
+export const waitForInboxReady = async (page: Page, rowSelector: string, emptySelector: string, timeoutMs = 15_000): Promise<void> => {
+  try {
+    await page.waitForFunction((rows, empty) => {
+      if (document.querySelector(rows)) return true;
+      return Array.from(document.querySelectorAll(empty)).some((node) => /^\s*(?:no (?:sms )?messages(?: received)?(?: yet)?[.!]?|this inbox is empty[.!]?)\s*$/i.test(node.textContent ?? ''));
+    }, { timeout: timeoutMs }, rowSelector, emptySelector);
+  } catch {
+    if (page.isClosed()) throw new ProviderError('Inbox request was closed', 503);
+    throw new ProviderError('Provider inbox did not finish loading or its message markup changed', 502);
+  }
+};
 
-export const convertMessages = (rows: RawMessage[], url: string): Message[] => rows.flatMap((row) => {
-  const timestamp = row.timestamp ? Date.parse(row.timestamp) : parseTimeAgo(row.agoText);
-  if (!row.message.trim() || !Number.isFinite(timestamp) || timestamp <= 0 || timestamp > Date.now() + 60_000) return [];
-  return [{ ago: timestamp, agoText: row.agoText, message: row.message.trim(), url }];
-});
+export interface RawMessage { agoText: string; message: string; timestamp?: string; sender?: string; }
+
+export interface ParsedMessageRows {
+  messages: Message[];
+  rawRowCount: number;
+  parseDrops: number;
+  droppedTimestampCount: number;
+  droppedMessageCount: number;
+}
+
+/** Provider absolute timestamps without a zone are interpreted as UTC, independent of host TZ. */
+export const parseProviderTimestamp = (input: string, now = Date.now()): number => {
+  const text = input.trim().replace(/^(\d{4})\s+(\d{1,2})\s+(\d{1,2})\s*-\s*(\d{1,2}:\d{2}(?::\d{2})?)$/, '$1-$2-$3T$4');
+  if (!text) return 0;
+  const absolute = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)?(?:\s*(Z|UTC|GMT|[+-]\d{2}:?\d{2}))?$/i);
+  if (absolute) {
+    const [, y, m, d, h = '0', min = '0', sec = '0', frac = '0', zone] = absolute;
+    const components = [Number(y), Number(m) - 1, Number(d), Number(h), Number(min), Number(sec), Number(frac.padEnd(3, '0'))];
+    const date = new Date(Date.UTC(components[0], components[1], components[2], components[3], components[4], components[5], components[6]));
+    if (date.getUTCFullYear() !== components[0] || date.getUTCMonth() !== components[1] || date.getUTCDate() !== components[2] || date.getUTCHours() !== components[3] || date.getUTCMinutes() !== components[4] || date.getUTCSeconds() !== components[5]) return 0;
+    const timestamp = zone && !/^(Z|UTC|GMT)$/i.test(zone)
+      ? Date.parse(`${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}T${h.padStart(2, '0')}:${min}:${sec}.${frac.padEnd(3, '0')}${zone}`)
+      : date.getTime();
+    return Number.isFinite(timestamp) && timestamp > 0 && timestamp <= now + 60_000 ? timestamp : 0;
+  }
+  // Preserve the established relative-time grammar; do not invent dates for unknown text.
+  return parseTimeAgo(text.replace(/\b(sec|secs|min|mins|hr|hrs)\./gi, '$1'), now);
+};
+
+export const parseMessageRows = (rows: RawMessage[], url: string, now = Date.now()): ParsedMessageRows => {
+  const messages: Message[] = [];
+  let droppedTimestampCount = 0;
+  let droppedMessageCount = 0;
+  for (const row of rows) {
+    if (!row.message.trim()) { droppedMessageCount++; continue; }
+    const timestamp = parseProviderTimestamp(row.timestamp || row.agoText, now);
+    if (!Number.isFinite(timestamp) || timestamp <= 0 || timestamp > now + 60_000) { droppedTimestampCount++; continue; }
+    const message = [row.sender?.trim(), row.message.trim()].filter(Boolean).join(' ');
+    messages.push({ ago: timestamp, agoText: row.agoText, message, url });
+  }
+  return { messages, rawRowCount: rows.length, parseDrops: rows.length - messages.length, droppedTimestampCount, droppedMessageCount };
+};
+
+/** Legacy helper preserved for callers that only need the parsed messages. */
+export const convertMessages = (rows: RawMessage[], url: string): Message[] => parseMessageRows(rows, url).messages;
 
 export const pollMessages = async (
   page: Page,
   options: OtpRouteHandlerOptions,
-  read: () => Promise<Message[]>,
+  read: () => Promise<Message[] | ParsedMessageRows>,
   origins: string[]
 ): Promise<Message[]> => {
-  const deadline = Date.now() + Math.min(Math.max(options.timeoutMs ?? 15_000, 0), 60_000);
+  const timeoutMs = Math.min(Math.max(options.timeoutMs ?? 15_000, 0), 60_000);
+  if (!Number.isFinite(timeoutMs) || !Number.isFinite(options.interval ?? 5) || !Number.isInteger(options.page ?? 1) || (options.page ?? 1) < 1 || !Number.isInteger(options.limit ?? 100) || (options.limit ?? 100) < 1) throw new ProviderError('Invalid inbox polling options', 400);
+  const deadline = Date.now() + timeoutMs;
   const patterns = Array.isArray(options.matcher) ? options.matcher : [options.matcher];
+  let pollCount = 0;
   for (;;) {
     if (page.isClosed()) throw new ProviderError('Inbox request was closed', 503);
-    const messages = await read();
-    const matches = messages.filter((message) => message.ago >= (options.askedOtpAt ?? 0) &&
-      patterns.some((pattern) => message.message.includes(pattern)));
-    if (matches.length) return matches.slice(0, options.limit ?? 100).map((message) => ({ ...message, otp: tryParseOtpCode(message.message) }));
+    const startedAt = Date.now();
+    const batch = await read();
+    const parsed = Array.isArray(batch) ? undefined : batch;
+    const messages = parsed ? parsed.messages : batch as Message[];
+    const withinTime = messages.filter((message) => message.ago >= (options.askedOtpAt ?? 0));
+    const matches = withinTime.filter((message) => patterns.some((pattern) => message.message.includes(pattern)));
+    const returned = matches.slice(0, options.limit ?? 100).map((message) => ({ ...message, otp: tryParseOtpCode(message.message) }));
+    const timestamps = messages.map((message) => message.ago);
+    if (parsed) options.onRead?.({
+      providerUrl: page.url(), readAt: new Date().toISOString(), readDurationMs: Date.now() - startedAt,
+      rawRowCount: parsed.rawRowCount, parseDrops: parsed.parseDrops,
+      droppedTimestampCount: parsed.droppedTimestampCount, droppedMessageCount: parsed.droppedMessageCount,
+      observedMessageCount: messages.length, matchedMessageCount: matches.length, returnedMessageCount: returned.length,
+      timeFilteredCount: messages.length - withinTime.length, matcherFilteredCount: withinTime.length - matches.length,
+      page: options.page ?? 1, pollCount: ++pollCount, emptyInbox: parsed.rawRowCount === 0,
+      newestMessageAt: timestamps.length ? Math.max(...timestamps) : undefined,
+      oldestMessageAt: timestamps.length ? Math.min(...timestamps) : undefined
+    });
+    if (parsed && parsed.rawRowCount > 0 && messages.length === 0) throw new ProviderError('Provider inbox rows were present but no message timestamps or content could be parsed', 502);
+    if (matches.length) return returned;
     if (Date.now() >= deadline) return [];
     const waitMs = Math.min(Math.max((options.interval ?? 5) * 1000, 1000), deadline - Date.now());
     if (waitMs <= 0) return [];
